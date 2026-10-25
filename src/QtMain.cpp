@@ -25,6 +25,8 @@
 
 #include "QtWindow.h"
 #include <QOpenGLWidget>
+#include <QSettings>
+#include <QStandardPaths>
 #include "GlView.h"
 #include "GuiTopBar.h"
 #include "version.h"
@@ -48,6 +50,16 @@ int main(int argc, char *argv[]){
     }
 
     QApplication app(argc, argv);
+
+    // PB_TEST_PROFILE=<dir>: keep the settings of test runs in <dir> and their progress in Qt's test
+    // location (~/.qttest), away from the user's own (the smoke tests copy the user's settings first).
+    const QString testProfile = qEnvironmentVariable("PB_TEST_PROFILE");
+    if (!testProfile.isEmpty())
+    {
+        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, testProfile);
+        QStandardPaths::setTestModeEnabled(true); // progress.json goes to ~/.qttest instead
+    }
+
     QtWindow window;
     window.show();
 
@@ -60,6 +72,7 @@ int main(int argc, char *argv[]){
     //   PB_LOOP_FROM=<bar>              ... starting at <bar>
     //   PB_MIDI_INPUT=<port name>       use this MIDI input without saving it (QtWindow::checkMidiInputs)
     //   PB_LATENCY_LOG, PB_FRAME_LOG    print timing measurements to stderr
+    //   PB_TEST_PROFILE=<dir>           settings and progress in <dir> (see above)
     const QString autoPlay = qEnvironmentVariable("PB_AUTOPLAY");
     if (!autoPlay.isEmpty())
         QTimer::singleShot(autoPlay.toInt(), &window, [&window]() {

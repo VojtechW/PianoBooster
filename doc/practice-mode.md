@@ -29,6 +29,21 @@ and you get an accuracy score and stars at the end.
 Use **Right / Both / Left** (F4 / F3 / F2; on a Mac keyboard hold Fn for the F keys) to practise one hand at a time. The other hand is then
 played for you and shown in grey.
 
+## Does the song fit your keyboard?
+
+Above the falling notes PianoBooster says whether the notes you are about to play fit on your MIDI
+keyboard. It knows the size of many models from their names (LPK25 and MPK mini: 25 keys, Launchkey
+49, Keystation 61, digital pianos: 88 …). You can also set the exact range in *Setup → Keyboard*.
+
+| Message | What to do |
+|---|---|
+| *Fits your LPK25: lowest key on C4* (green) | Use the octave buttons until your lowest key plays C4. The keys your keyboard reaches are marked with a cyan line under the on-screen keyboard. |
+| *Fits your LPK25 if transposed by +5* (orange) | Set *Transpose* in the top bar to +5. Small keyboards shift by whole octaves, so a song that spans few enough keys can still need transposing to fit between two Cs. |
+| *Needs 28 keys, your LPK25 has 25: practise one hand at a time* (orange) | Choose *Right* or *Left* in the side panel. The message tells you if only one of the hands fits. |
+| *Needs 15 keys (C4–D5)* (grey) | The size of your keyboard is not known. Set its range in *Setup → Keyboard*. |
+
+In the notation view the same advice appears in the status bar when a song does not fit.
+
 ## Practice tools
 
 - **Loop a passage:** drag across the bars you want on the progress bar at the top. The loop is

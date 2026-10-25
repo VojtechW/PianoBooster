@@ -536,6 +536,17 @@ void CGLView::drawHighwayHud(float width, float height)
                     tr("Speed %1%").arg(qRound(m_song->getSpeed() * 100.0f)) + "   " + modeText,
                     m_hudSmallFont, Qt::AlignLeft);
 
+    if (!m_keyboardFitText.isEmpty())
+    {
+        if (m_keyboardFitLevel == 1)
+            glColor3f(0.45f, 0.85f, 0.55f);
+        else if (m_keyboardFitLevel == 2)
+            glColor3f(1.0f, 0.7f, 0.3f);
+        else
+            glColor3f(0.65f, 0.68f, 0.75f);
+        drawTextAligned(width / 2, height - 54, m_keyboardFitText, m_hudSmallFont, Qt::AlignHCenter);
+    }
+
     if (mode != PB_PLAY_MODE_listen)
     {
         const PerformanceResult live = performance->result();

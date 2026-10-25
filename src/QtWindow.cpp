@@ -34,6 +34,7 @@
 #include "GlView.h"
 #include "GuiProgressDialog.h"
 #include "Progress.h"
+#include "KeyboardFit.h"
 #if WITH_INTERNAL_FLUIDSYNTH
 #include "MidiDeviceFluidSynth.h"
 #endif
@@ -920,6 +921,75 @@ void QtWindow::buildSoundMenu()
     });
 }
 
+// Tell whether the notes the pianist plays fit on the MIDI keyboard, and how to make them fit.
+void QtWindow::updateKeyboardFit()
+{
+    using namespace KeyboardFit;
+    const QString port = m_connectedMidiInput.isEmpty() ? m_settings->value("Midi/Input").toString() : m_connectedMidiInput;
+    CHighway *highway = m_score->getHighway();
+    const whichPart_t hand = m_song->getActiveHand();
+    int low = 0, high = 0;
+    if (port.isEmpty() || port.startsWith(tr("None")) || !highway->partRange(hand, &low, &high))
+    {
+        m_glWidget->setKeyboardFit(QString(), 0);
+        highway->setReachableRange(1, 0);
+        return;
+    }
+    const Keyboard keyboard = identify(port, m_settings->value("Keyboard/LowestNote", 0).toInt(),
+                                       m_settings->value("Keyboard/HighestNote", 127).toInt());
+    const Result result = check(keyboard, low, high);
+    const QString range = noteName(low) + QChar(0x2013) + noteName(high);
+    QString text;
+    int level = 0;
+    switch (result.verdict)
+    {
+    case Verdict::unknown:
+        text = tr("Needs %1 keys (%2)").arg(result.keysNeeded).arg(range);
+        break;
+    case Verdict::fits:
+        level = 1;
+        text = (keyboard.fixedLowest >= 0) ? tr("Fits your %1").arg(keyboard.name)
+                                           : tr("Fits your %1: lowest key on %2").arg(keyboard.name, noteName(result.lowestKey));
+        break;
+    case Verdict::transpose:
+        level = 2;
+        text = tr("Fits your %1 if transposed by %2").arg(keyboard.name).arg(result.transpose > 0 ? QString("+%1").arg(result.transpose)
+                                                                                                    : QString::number(result.transpose));
+        break;
+    case Verdict::tooWide:
+    {
+        level = 2;
+        text = tr("Needs %1 keys, your %2 has %3").arg(result.keysNeeded).arg(keyboard.name).arg(keyboard.keys);
+        if (hand == PB_PART_both)
+        {
+            // would one hand at a time fit?
+            int rightLow, rightHigh, leftLow, leftHigh;
+            const bool rightFits = highway->partRange(PB_PART_right, &rightLow, &rightHigh) &&
+                                   check(keyboard, rightLow, rightHigh).verdict != Verdict::tooWide;
+            const bool leftFits = highway->partRange(PB_PART_left, &leftLow, &leftHigh) &&
+                                  check(keyboard, leftLow, leftHigh).verdict != Verdict::tooWide;
+            if (rightFits && leftFits)
+                text += tr(": practise one hand at a time");
+            else if (rightFits)
+                text += tr(": the right hand alone fits");
+            else if (leftFits)
+                text += tr(": the left hand alone fits");
+        }
+        break;
+    }
+    }
+    m_glWidget->setKeyboardFit(text, level);
+    if (result.verdict == Verdict::fits && keyboard.keys > 0)
+        highway->setReachableRange(result.lowestKey, result.lowestKey + keyboard.keys - 1);
+    else
+        highway->setReachableRange(1, 0);
+    if (level == 2 && !m_keyboardFitAnnounced)
+    {
+        m_keyboardFitAnnounced = true; // also visible in the notation view
+        statusBar()->showMessage(text, 10000);
+    }
+}
+
 QString QtWindow::currentSongKey()
 {
     if (!m_settings->getCurrentSongName().isEmpty())
@@ -946,6 +1016,7 @@ void QtWindow::practiceTick()
     m_lastPracticeTickUs = nowUs;
     const bool practising = m_song->playingMusic() && m_song->getPlayMode() != PB_PLAY_MODE_listen &&
                             nowUs - m_song->lastPianistInputUs() < 15 * 1000000LL;
+    updateKeyboardFit();
     if (!practising || seconds > 5.0)
         return;
     CProgress &progress = CProgress::instance();

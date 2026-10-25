@@ -72,6 +72,8 @@ public:
         }
         if ((eventBits & EVENT_BITS_loadSong) != 0){
             m_topBar->setPlayButtonState(false, true);
+            m_keyboardFitAnnounced = false;
+            updateKeyboardFit();
         }
     }
 
@@ -119,6 +121,7 @@ private slots:
         keyboardSetup.init(m_song, m_settings);
         keyboardSetup.exec();
         refreshHighwaySettings();
+        updateKeyboardFit();
         if (m_settings->value("Keyboard/RightSound") != rightSound)
             useKeyboardSetupSound(); // a sound chosen there replaces the one from Practice / Your Sound
     }
@@ -205,6 +208,7 @@ private:
     void updateStatusBar();
     void refreshHighwaySettings();
     void applyPianistSound();
+    void updateKeyboardFit();
     void useKeyboardSetupSound();
     void setupSoundBanks();
     void readSettings();
@@ -254,6 +258,7 @@ private:
     int m_unsavedPracticeSeconds = 0;
     QString m_connectedMidiInput; // the input port opened by the hot-plug check
     QStringList m_lastMidiInputPorts;
+    bool m_keyboardFitAnnounced = false; // the status bar told about a song that does not fit
 
     CSong* m_song;
     CScore* m_score;

@@ -30,12 +30,13 @@ def main():
     ap.add_argument("--delay", type=float, default=3.0, help="seconds to wait before playing")
     ap.add_argument("--port-only", action="store_true", help="only open the port and wait")
     ap.add_argument("--seed", type=int, default=None)
+    ap.add_argument("--port-name", default="Virtual Pianist", help="name of the virtual MIDI port")
     ap.add_argument("--wait-log", help="start when PB_MUSIC_START appears in this log file (instead of --delay)")
     args = ap.parse_args()
     rng = random.Random(args.seed)
 
-    out = mido.open_output("Virtual Pianist", virtual=True)
-    print("Opened virtual port 'Virtual Pianist'", flush=True)
+    out = mido.open_output(args.port_name, virtual=True)
+    print(f"Opened virtual port '{args.port_name}'", flush=True)
     if args.port_only or not args.midi:
         try:
             while True:

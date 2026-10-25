@@ -321,6 +321,21 @@ void CHighway::reset()
     m_lastFlash = {0, Judgement::pending, 0};
 }
 
+bool CHighway::partRange(whichPart_t hand, int *low, int *high) const
+{
+    *low = 128;
+    *high = -1;
+    for (const auto &note : m_notes)
+    {
+        const whichPart_t noteHand = handOf(note);
+        if (noteHand == PB_PART_none || (hand != PB_PART_both && noteHand != hand))
+            continue;
+        *low = std::min(*low, note.pitch + m_transpose);
+        *high = std::max(*high, note.pitch + m_transpose);
+    }
+    return *high >= 0;
+}
+
 void CHighway::setKeyboardRange(int lowest, int highest)
 {
     m_keyboardLowest = lowest;
@@ -670,6 +685,25 @@ void CHighway::drawKeyboard(CChord &wantedChord)
         color(keyFill(key, black));
         quad(m_keyX0[key] + 1.5f, blackBottom + 1, m_keyX1[key] - 1.5f, whiteTop);
     }
+    // the keys the pianist's keyboard reaches: a bar along the bottom, the others dimmed
+    if (m_reachLow <= m_reachHigh)
+    {
+        for (int key = m_lowKey; key <= m_highKey; key++)
+        {
+            if (key >= m_reachLow && key <= m_reachHigh)
+                continue;
+            color({0.0f, 0.0f, 0.0f, 0.45f});
+            quad(m_keyX0[key], isBlackKey(key) ? blackBottom : whiteBottom, m_keyX1[key], whiteTop);
+        }
+        const int first = std::max(m_reachLow, m_lowKey);
+        const int last = std::min(m_reachHigh, m_highKey);
+        if (first <= last)
+        {
+            color({0.25f, 0.85f, 0.95f, 0.9f});
+            quad(m_keyX0[first], whiteBottom, m_keyX1[last], whiteBottom + 4);
+        }
+    }
+
     // judgement flashes rising from the hit line
     for (int key = m_lowKey; key <= m_highKey; key++)
     {

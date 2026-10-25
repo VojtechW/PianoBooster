@@ -132,6 +132,19 @@ Latency depends only on the audio buffer, not on the SoundFont. The banks below 
 
 The Salamander grand is kept in RAM once loaded.
 
+## Keyboard fit – `KeyboardFit` (KeyboardFit.h/.cpp)
+
+- **Keyboard size:** `identify` takes it from the keyboard setup range, or else from the MIDI port
+  name (a table of models, then a key count in the name).
+- **Fit:** `check` works out whether the part's sounding notes (`CHighway::partRange`, for the
+  active hand) fit.
+  - **Keyboards that start on a C** (controllers with octave buttons): the reachable window starts
+    on any C, so a narrow part may still need a small transposition.
+  - **Fixed ranges** (88 keys from A0, or the keyboard setup): the part must lie inside the range.
+- **Display:** `QtWindow::updateKeyboardFit` runs once a second and on song load. It puts the
+  advice in the HUD (`CGLView::setKeyboardFit`) and marks the reachable keys
+  (`CHighway::setReachableRange`).
+
 ## Tests
 
 - `pianobooster_tests` (QtTest, `src/tests/test_core.cpp`) covers the judgement classes, accuracy,
@@ -141,6 +154,8 @@ The Salamander grand is kept in RAM once loaded.
   - `tools/virtual_pianist.py` creates the "Virtual Pianist" MIDI port. It plays a song's notes,
     optionally with jitter, a constant offset, wrong or skipped notes, and starts at the app's
     `PB_MUSIC_START`.
-  - `tools/smoke_test.sh` drives the app with the hooks `PB_MIDI_INPUT`, `PB_AUTOPLAY`, `PB_SCREENSHOT`,
+  - `tools/smoke_test.sh` runs the app on a copy of the user's settings (`PB_TEST_PROFILE`; progress
+    goes to `~/.qttest`), so tests never change the user's settings or practice history. It drives
+    the app with the hooks `PB_MIDI_INPUT`, `PB_AUTOPLAY`, `PB_SCREENSHOT`,
     `PB_QUIT_AFTER`, `PB_SPEED`, `PB_LOOP_FROM` and `PB_LOOP_BARS`, and reports latency, frame times
     and the score.

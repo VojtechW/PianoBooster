@@ -182,6 +182,7 @@ SET( PIANOBOOSTER_SRCS
     StavePosition.cpp
     Score.cpp
     Highway.cpp
+    KeyboardFit.cpp
     Cfg.cpp
     Piano.cpp
     Draw.cpp
@@ -392,7 +393,7 @@ if (BUILD_TESTS)
     find_package("${QT_PACKAGE_NAME}" COMPONENTS Test)
     if (${QT_PACKAGE_NAME}Test_FOUND)
         enable_testing()
-        add_executable(pianobooster_tests tests/test_core.cpp Performance.cpp Progress.cpp)
+        add_executable(pianobooster_tests tests/test_core.cpp Performance.cpp Progress.cpp KeyboardFit.cpp)
         target_link_libraries(pianobooster_tests ${QT_PACKAGE_NAME}::Core ${QT_PACKAGE_NAME}::Test)
         add_test(NAME pianobooster_tests COMMAND pianobooster_tests)
     endif ()

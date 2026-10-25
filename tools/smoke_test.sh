@@ -4,7 +4,7 @@
 #
 # usage: tools/smoke_test.sh <song.mid> <outdir> [seconds] [-- virtual_pianist options...]
 # env:   PYTHON (python with mido + python-rtmidi), APP (pianobooster binary), APP_ARGS,
-#        SHOTS (comma separated ms, default 4000,8000,12000)
+#        SHOTS (comma separated ms, default 4000,8000,12000), PORT_NAME (virtual keyboard name)
 # The app is told to use the "Virtual Pianist" port (PB_MIDI_INPUT); its saved settings are not changed.
 set -u
 song="$1"; out="$2"; secs="${3:-20}"
@@ -15,8 +15,14 @@ APP="${APP:-$here/../build/build/pianobooster.app/Contents/MacOS/pianobooster}"
 PYTHON="${PYTHON:-python3}"
 mkdir -p "$out"
 
+# a copy of the user's settings, so test runs never change them (nor the practice progress)
+profile="$out/profile"
+mkdir -p "$profile/PianoBooster"
+cp "$HOME/.config/PianoBooster/Piano Booster.ini" "$profile/PianoBooster/" 2>/dev/null
+[ -n "${PROFILE_SETUP:-}" ] && eval "$PROFILE_SETUP"   # e.g. edit "$profile/PianoBooster/Piano Booster.ini"
+
 rm -f "$out/app.log"
-"$PYTHON" "$here/virtual_pianist.py" "$song" --wait-log "$out/app.log" "$@" > "$out/pianist.log" 2>&1 &
+"$PYTHON" "$here/virtual_pianist.py" "$song" --port-name "${PORT_NAME:-Virtual Pianist}" --wait-log "$out/app.log" "$@" > "$out/pianist.log" 2>&1 &
 pianist=$!
 sleep 1
 
@@ -24,7 +30,7 @@ shots=""
 IFS=',' read -ra ms <<< "${SHOTS:-4000,8000,12000}"
 for t in "${ms[@]}"; do shots="$shots$out/shot_$t.png@$t;"; done
 
-PB_MIDI_INPUT="Virtual Pianist" PB_AUTOPLAY=1500 PB_LATENCY_LOG=1 PB_FRAME_LOG=1 PB_SCREENSHOT="$shots" PB_QUIT_AFTER=$((secs * 1000)) \
+PB_TEST_PROFILE="$profile" PB_MIDI_INPUT="${PORT_NAME:-Virtual Pianist}" PB_AUTOPLAY=1500 PB_LATENCY_LOG=1 PB_FRAME_LOG=1 PB_SCREENSHOT="$shots" PB_QUIT_AFTER=$((secs * 1000)) \
     "$APP" ${APP_ARGS:-} "$song" > "$out/app.log" 2>&1
 echo "app exit code $?"
 kill $pianist 2>/dev/null

@@ -62,6 +62,12 @@ public:
     enum keyState_t { KEY_UP = 0, KEY_GOOD, KEY_BAD };
     void setKeyState(int pitch, keyState_t state);
 
+    //! The lowest and highest sounding note the pianist plays (one hand or both, transposed);
+    //! false when the part has no notes
+    bool partRange(whichPart_t hand, int *low, int *high) const;
+    //! the keys the pianist's keyboard reaches (shown on the on-screen keyboard), low > high = unknown
+    void setReachableRange(int low, int high) { m_reachLow = low; m_reachHigh = high; }
+
     //! number of quarter notes visible above the hit line
     void setLookAheadBeats(float beats);
     float lookAheadBeats() const { return m_lookAheadBeats; }
@@ -124,6 +130,8 @@ private:
     int m_keyboardLowest;
     int m_keyboardHighest;
     float m_lookAheadBeats;
+    int m_reachLow = 1;
+    int m_reachHigh = 0;
 
     bool m_rangeDirty;
     int m_lowKey;

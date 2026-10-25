@@ -59,6 +59,8 @@ public:
     void setHighwayMode(bool enable);
     bool isHighwayMode() const { return m_highwayMode; }
     void dismissResults() { m_resultVisible = false; }
+    //! the line saying whether the song fits on the pianist's keyboard (level 0 neutral, 1 good, 2 warning)
+    void setKeyboardFit(const QString &text, int level) { m_keyboardFitText = text; m_keyboardFitLevel = level; }
 
 signals:
     //! a scored run ended: at the end of the song, or at the end of a loop pass
@@ -128,6 +130,8 @@ private:
     QFont m_resultFont;
     PerformanceResult m_result;      // the last finished run
     bool m_resultVisible = false;
+    QString m_keyboardFitText;
+    int m_keyboardFitLevel = 0;
     struct QueuedText { float x; float y; QString text; QFont font; QColor color; int align; };
     std::vector<QueuedText> m_textQueue; // the highway view draws all its text in one QPainter pass
     int m_frameIntervalMs = 8;

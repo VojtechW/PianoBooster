@@ -28,6 +28,7 @@
 
 #include "../Performance.h"
 #include "../Progress.h"
+#include "../KeyboardFit.h"
 
 class TestCore : public QObject
 {
@@ -118,6 +119,56 @@ private slots:
         // yesterday had less than a minute, so the streak is just today
         QCOMPARE(progress.currentStreak(today), 1);
         QCOMPARE(progress.bestStreak(), 1);
+    }
+
+    void keyboardModels()
+    {
+        using namespace KeyboardFit;
+        QCOMPARE(keysFromName("LPK25"), 25);
+        QCOMPARE(keysFromName("MPK mini 3"), 25);
+        QCOMPARE(keysFromName("Launchkey 49 MK3 LKMK3 MIDI Out"), 49);
+        QCOMPARE(keysFromName("Keystation 88 II"), 88);
+        QCOMPARE(keysFromName("microKEY-37"), 37);
+        QCOMPARE(keysFromName("IAC Driver Bus 1"), 0);
+        QCOMPARE(identify("0 - LPK25", 0, 127).name, QString("LPK25"));
+        QCOMPARE(identify("0 - LPK25", 0, 127).keys, 25);
+        const Keyboard setup = identify("1 - Some Keyboard", 36, 96); // the keyboard setup wins
+        QCOMPARE(setup.keys, 61);
+        QCOMPARE(setup.fixedLowest, 36);
+        QCOMPARE(noteName(60), QString("C4"));
+        QCOMPARE(noteName(61), QString("C#4"));
+    }
+
+    void keyboardFit()
+    {
+        using namespace KeyboardFit;
+        Keyboard lpk25;
+        lpk25.keys = 25;
+        Result r = check(lpk25, 60, 67); // C4..G4
+        QCOMPARE(r.verdict, Verdict::fits);
+        QCOMPARE(r.lowestKey, 60);
+        QCOMPARE(r.keysNeeded, 8);
+        r = check(lpk25, 50, 70); // D3..A#4: the C window from C3 reaches C5
+        QCOMPARE(r.verdict, Verdict::fits);
+        QCOMPARE(r.lowestKey, 48);
+        r = check(lpk25, 55, 79); // G3..G5, 25 keys but not from a C
+        QCOMPARE(r.verdict, Verdict::transpose);
+        QCOMPARE(r.transpose, 5);
+        QCOMPARE(r.lowestKey, 60);
+        r = check(lpk25, 50, 75); // 26 keys
+        QCOMPARE(r.verdict, Verdict::tooWide);
+        QCOMPARE(r.keysNeeded, 26);
+
+        const Keyboard piano = identify("0 - Digital Piano", 0, 127);
+        QCOMPARE(piano.keys, 88);
+        QCOMPARE(check(piano, 21, 108).verdict, Verdict::fits);
+        r = check(piano, 19, 40); // below A0
+        QCOMPARE(r.verdict, Verdict::transpose);
+        QCOMPARE(r.transpose, 2);
+
+        Keyboard unknown;
+        QCOMPARE(check(unknown, 60, 72).verdict, Verdict::unknown);
+        QCOMPARE(check(unknown, 60, 72).keysNeeded, 13);
     }
 
     void streaks()
