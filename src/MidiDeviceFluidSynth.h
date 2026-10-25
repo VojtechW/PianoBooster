@@ -72,13 +72,15 @@ public:
         return QString(tr("Internal Sound") + " " + FLUID_NAME );
     }
 
-    // Platform defaults. On macOS CoreAudio copes well with small buffers, which keeps the
-    // key-press-to-sound latency at a few milliseconds (64 frames * 2 periods @ 44.1 kHz ~ 3 ms).
+    // Platform defaults. On macOS the buffer size is the output device's I/O buffer (see
+    // MacAudio.h): 128 frames @ 44.1 kHz is about 3 ms from key press to sound.
 #if defined (Q_OS_DARWIN)
     static const char* defaultAudioDriver() { return "coreaudio"; }
     static int defaultSampleRate() { return 44100; }
-    static int defaultPeriodSize() { return 64; }
+    static int defaultPeriodSize() { return 128; }
     static int defaultPeriods() { return 2; }
+    static constexpr int MAC_FLUID_PERIOD_SIZE = 512;
+    static constexpr int MAC_FLUID_PERIODS = 8;
 #else
     static const char* defaultAudioDriver() { return "pulseaudio"; }
     static int defaultSampleRate() { return 22050; }
@@ -100,6 +102,7 @@ private:
     int m_channelBank[MAX_MIDI_CHANNELS] = {};    // the bank selected on each channel (CC 0)
     static constexpr int DRUM_BANK = 128;         // FluidSynth's bank of the General MIDI drum kits
     void setMainFontProgram(int channel, int program);
+    static int probeAudio(void *data, int len, int nfx, float *fx[], int nout, float *out[]);
     bool m_validConnection;
 };
 

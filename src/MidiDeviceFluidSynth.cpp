@@ -30,7 +30,12 @@
 
 #include <QFileInfo>
 
+#if defined (Q_OS_DARWIN)
+#include "MacAudio.h"
+#endif
+
 #include <algorithm>
+#include <cmath>
 
 static fluid_settings_t* s_debug_fluid_settings;
 
@@ -106,8 +111,18 @@ bool CMidiDeviceFluidSynth::openMidiPort(midiType_t type, const QString &portNam
 
     // Change the settings if necessary
     fluid_settings_setnum(m_fluidSettings, "synth.sample-rate", qsettings->value("FluidSynth/sampleRateCombo", defaultSampleRate()).toInt());
+#if defined (Q_OS_DARWIN)
+    // On macOS the latency is set by the output device's I/O buffer, not by FluidSynth's periods:
+    // the CoreAudio callback asks for one device buffer at a time. So the "buffer size" setting is
+    // used for the device buffer, and FluidSynth gets internal buffers big enough for any device
+    // (if they are smaller than the device buffer, FluidSynth renders nothing at all).
+    MacAudio::setOutputBufferFrames(qsettings->value("FluidSynth/bufferSizeCombo", defaultPeriodSize()).toInt());
+    fluid_settings_setint(m_fluidSettings, "audio.period-size", MAC_FLUID_PERIOD_SIZE);
+    fluid_settings_setint(m_fluidSettings, "audio.periods", MAC_FLUID_PERIODS);
+#else
     fluid_settings_setint(m_fluidSettings, "audio.period-size", qsettings->value("FluidSynth/bufferSizeCombo", defaultPeriodSize()).toInt());
     fluid_settings_setint(m_fluidSettings, "audio.periods", qsettings->value("FluidSynth/bufferCountCombo", defaultPeriods()).toInt());
+#endif
 
 #if !defined (Q_OS_WINDOWS)
     fluid_settings_setstr(m_fluidSettings, "audio.driver", qsettings->value("FluidSynth/audioDriverCombo", defaultAudioDriver()).toString().toStdString().c_str());
@@ -125,8 +140,14 @@ bool CMidiDeviceFluidSynth::openMidiPort(midiType_t type, const QString &portNam
     // Create the synthesizer.
     m_synth = new_fluid_synth(m_fluidSettings);
 
-    // Create the audio driver.
-    m_audioDriver = new_fluid_audio_driver(m_fluidSettings, m_synth);
+    // Create the audio driver. With PB_SOUND_PROBE set, the audio passes through a callback that
+    // reports its peak level once a second (to tell "no audio produced" from "audio not heard").
+    if (qEnvironmentVariableIsSet("PB_SOUND_PROBE"))
+        m_audioDriver = new_fluid_audio_driver2(m_fluidSettings, &CMidiDeviceFluidSynth::probeAudio, m_synth);
+    else
+        m_audioDriver = new_fluid_audio_driver(m_fluidSettings, m_synth);
+    if (m_audioDriver == nullptr)
+        ppLogError("FluidSynth could not open the audio output");
 
     // Extra SoundFonts provide instruments for the pianist (e.g. a dedicated grand piano or
     // electric piano). Only the one in use is loaded now (a big piano bank takes a few seconds and
@@ -198,6 +219,16 @@ void CMidiDeviceFluidSynth::playMidiEvent(const CMidiEvent & event)
             break;
         case MIDI_NOTE_ON:      // NOTE_ON
             fluid_synth_noteon(m_synth, channel, event.note(), event.velocity());
+            static const bool soundProbe = qEnvironmentVariableIsSet("PB_SOUND_PROBE");
+            if (soundProbe) // diagnostics: which instrument a note gets
+            {
+                int sfont = -1, bank = -1, preset = -1;
+                fluid_synth_get_program(m_synth, channel, &sfont, &bank, &preset);
+                fluid_preset_t *p = fluid_synth_get_channel_preset(m_synth, channel);
+                fprintf(stderr, "PB_PROBE noteon ch=%d note=%d vel=%d font=%d bank=%d prog=%d preset=%s voices=%d gain=%.2f\n",
+                        channel, event.note(), event.velocity(), sfont, bank, preset, p ? fluid_preset_get_name(p) : "(none)",
+                        fluid_synth_get_active_voice_count(m_synth), static_cast<double>(fluid_synth_get_gain(m_synth)));
+            }
             break;
 
         case MIDI_NOTE_PRESSURE: //POLY_AFTERTOUCH: 3 bytes
@@ -253,6 +284,26 @@ void CMidiDeviceFluidSynth::setMainFontProgram(int channel, int program)
     // the bank is not in the main SoundFont: try its default bank, then whatever FluidSynth finds
     if (fluid_synth_program_select(m_synth, channel, m_soundFontId, (channel == MIDI_DRUM_CHANNEL) ? DRUM_BANK : 0, program) != FLUID_OK)
         fluid_synth_program_change(m_synth, channel, program);
+}
+
+int CMidiDeviceFluidSynth::probeAudio(void *data, int len, int nfx, float *fx[], int nout, float *out[])
+{
+    static float peak = 0;
+    static int frames = 0;
+    auto *synth = static_cast<fluid_synth_t *>(data);
+    const int result = fluid_synth_process(synth, len, nfx, fx, nout, out);
+    for (int channel = 0; channel < nout; channel++)
+        for (int i = 0; i < len; i++)
+            peak = std::max(peak, std::fabs(out[channel][i]));
+    frames += len;
+    if (frames >= 44100)
+    {
+        fprintf(stderr, "PB_PROBE audio peak=%.4f voices=%d buffer=%d\n", static_cast<double>(peak),
+                fluid_synth_get_active_voice_count(synth), len);
+        peak = 0;
+        frames = 0;
+    }
+    return result;
 }
 
 bool CMidiDeviceFluidSynth::addSoundFont(const QString &font)

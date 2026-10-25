@@ -233,6 +233,9 @@ set(CMAKE_INCLUDE_CURRENT_DIR ON)
 
 # here we instruct CMake to build "pianobooster" executable from all of the source files
 if(APPLE)
+    # sets the output device's I/O buffer, which is what decides the latency of the internal sound
+    list(APPEND PIANOBOOSTER_SRCS MacAudio.cpp)
+
     # the property added the pianobooster icon to Info.plist
     set(MACOSX_BUNDLE_ICON_FILE pianobooster.icns)
 

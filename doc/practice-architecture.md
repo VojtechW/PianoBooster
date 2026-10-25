@@ -13,7 +13,7 @@ RtMidi callback thread ──► SPSC ring (CMidiDeviceRt, timestamped) ──�
                                                                     ▼
 QBasicTimer, 4 ms (PreciseTimer) ─► CGLView::updateMidiTask ─► CSong::task ─► CConductor::realTimeEngine
 paintGL (about the screen refresh rate) ─┘                                       │
-                                                       FluidSynth (own audio thread, 64 x 2 frames)
+                                                       FluidSynth (CoreAudio thread, 128-frame device buffer)
 ```
 
 - **Input:** the RtMidi callback only copies the message into a lock-free single-producer
@@ -23,8 +23,18 @@ paintGL (about the screen refresh rate) ─┘                                  
   (`m_realtimeConsumedNs`), so no time is lost when it runs from both the timer and the paint.
 - **Display:** on macOS the swap interval is 0, so a vsync wait never stalls the engine.
   Repaints are throttled to about the screen refresh rate (`m_frameIntervalMs`).
-- **Measuring:** `PB_LATENCY_LOG` prints the input queue age of every key press, and
-  `PB_FRAME_LOG` prints the paint cost of every frame. `tools/smoke_test.sh` summarises both.
+- **Audio:** on macOS the delay from key to sound is set by the output device's I/O buffer, not by
+  FluidSynth's period settings. `MacAudio::setOutputBufferFrames` asks CoreAudio for a 128-frame
+  (2.9 ms) buffer for this process, and asks again when the default output device changes.
+  FluidSynth gets large internal buffers (512 × 8): if they are smaller than the device buffer it
+  renders nothing at all (the bug of the first alpha, which used 64 × 2).
+- **Measuring:**
+  - `PB_LATENCY_LOG` prints the input queue age of every key press.
+  - `PB_FRAME_LOG` prints the paint cost of every frame.
+  - `PB_SOUND_PROBE` prints the instrument each note gets, and the audio peak level and buffer
+    size once a second.
+
+  `tools/smoke_test.sh` summarises the first two.
 
 ## Song time
 

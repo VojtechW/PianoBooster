@@ -151,3 +151,12 @@ reviews the diff (bugs, latency, thread safety) → fix → commit.
   fallback bank.
 - Installed: GeneralUser GS, Salamander Grand, YDP Grand, Upright Piano KW, jRhodes3.
   All render more than 100× faster than real time, so no lag risk.
+
+## Alpha fix 1 – no sound on macOS
+- **Symptom:** the first alpha was completely silent with the internal synthesizer.
+- **Cause:** the macOS defaults of 64 × 2 FluidSynth frames. The CoreAudio callback asks for the
+  device's whole I/O buffer (512 frames by default), and FluidSynth renders nothing when its own
+  buffers are smaller. The earlier "3 ms" was never true: latency is the device buffer.
+- **Fix:** FluidSynth buffers of 512 × 8, plus the device buffer for this process set to 128
+  frames (2.9 ms) with `MacAudio`, re-applied when the output device changes. Verified with the
+  `PB_SOUND_PROBE` audio-level probe: callbacks of 128 frames with a real signal.

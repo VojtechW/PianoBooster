@@ -15,7 +15,7 @@ and you get an accuracy score and stars at the end.
      so you don't hear every note twice. Wrong notes are still played through the computer, so you
      notice them; set the wrong-note sound to *None* as well if you don't want that.
    - **Your keyboard is a controller without sound:** PianoBooster plays the sound through
-     FluidSynth with about a 3 ms audio buffer (see *Sounds* below).
+     FluidSynth with a 128-frame (about 3 ms) audio buffer (see *Sounds* below).
 4. Choose a song in the side panel and press **Space**. One bar is counted in, then the music starts.
 
 ## Modes (side panel, "Skill")
