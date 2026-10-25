@@ -44,6 +44,8 @@
 #include <QTextStream>
 #include <QFile>
 #include "Settings.h"
+
+#include <QRegularExpression>
 #include "GuiTopBar.h"
 #include "GuiSidePanel.h"
 #include "QtWindow.h"
@@ -536,6 +538,81 @@ void CSettings::updateWarningMessages()
         m_warningMessage.clear();
 }
 
+QStringList CSettings::soundFontFolders()
+{
+#if defined (Q_OS_DARWIN)
+    // the app bundle, and the usual macOS / Homebrew sound bank folders
+    return {
+        QApplication::applicationDirPath() + "/../Resources/soundfont",
+        QDir::homePath() + "/Library/Audio/Sounds/Banks",
+        "/Library/Audio/Sounds/Banks",
+        "/opt/homebrew/share/soundfonts",
+        "/usr/local/share/soundfonts",
+        FALLBACK_SOUND_FONT_FOLDER,
+    };
+#else
+    return {QApplication::applicationDirPath() + "/soundfont", "/usr/share/soundfonts", "/usr/share/sounds/sf2"};
+#endif
+}
+
+QStringList CSettings::findSoundFonts()
+{
+    QStringList fonts;
+    for (const QString &folder : soundFontFolders())
+        for (const QFileInfo &file : QDir(folder).entryInfoList({"*.sf2", "*.SF2", "*.sf3", "*.SF3"}, QDir::Files, QDir::Size))
+            fonts.append(file.absoluteFilePath());
+    return fonts;
+}
+
+bool CSettings::isGeneralMidiBank(const QString &font)
+{
+    // a guess from the name: the well-known General MIDI banks (single-instrument banks such as a
+    // grand piano cannot play the accompaniment)
+    static const QRegularExpression gmNames("general|(^|[^a-z])gm([^a-z]|$)|fluidr3|musescore|arachno|timbres|sgm|chorium",
+                                            QRegularExpression::CaseInsensitiveOption);
+    return QFileInfo(font).completeBaseName().contains(gmNames);
+}
+
+QString CSettings::bestGeneralMidiBank(const QStringList &fonts)
+{
+    // fonts are sorted by folder, then size: prefer a General MIDI bank, then any but the fallback
+    for (const QString &font : fonts)
+        if (isGeneralMidiBank(font))
+            return font;
+    for (const QString &font : fonts)
+        if (!font.startsWith(FALLBACK_SOUND_FONT_FOLDER))
+            return font;
+    return fonts.value(0);
+}
+
+bool CSettings::updateSoundBanks()
+{
+    const QStringList fonts = findSoundFonts();
+    bool mainChanged = false;
+#if WITH_INTERNAL_FLUIDSYNTH
+    // replace the tiny fallback bank (or a missing file) by a proper General MIDI bank once one is installed
+    const QString current = getFluidSoundFontNames().value(0);
+    const QString best = bestGeneralMidiBank(fonts);
+    // (only ever switch to a General MIDI bank: a piano-only bank cannot play the accompaniment)
+    if (!current.isEmpty() && isGeneralMidiBank(best) && best != current &&
+        (!QFileInfo(current).isFile() || current.startsWith(FALLBACK_SOUND_FONT_FOLDER)))
+    {
+        setFluidSoundFontNames(best);
+        saveSoundFontSettings();
+        mainChanged = true;
+    }
+#endif
+    // every other bank found is offered as an extra instrument for the pianist
+    QStringList extras = value("FluidSynth/ExtraSoundFonts").toStringList();
+    const QString mainFont = getFluidSoundFontNames().value(0);
+    for (const QString &font : fonts)
+        if (font != mainFont && !extras.contains(font) && !font.startsWith(FALLBACK_SOUND_FONT_FOLDER))
+            extras.append(font);
+    extras.removeAll(mainFont);
+    setValue("FluidSynth/ExtraSoundFonts", extras);
+    return mainChanged;
+}
+
 void CSettings::setupDefaultSoundFont(){
 #if WITH_INTERNAL_FLUIDSYNTH
 
@@ -565,7 +642,10 @@ void CSettings::setupDefaultSoundFont(){
             }
         }
 
-#if defined (Q_OS_LINUX) || defined (Q_OS_UNIX)
+#if defined (Q_OS_DARWIN)
+        if (!defaultSoundFont.isFile())
+            defaultSoundFont.setFile(bestGeneralMidiBank(findSoundFonts()));
+#elif defined (Q_OS_LINUX) || defined (Q_OS_UNIX)
         if (!defaultSoundFont.isFile())
         {
             QStringList possibleSoundFontFolders = {"/usr/share/soundfonts","/usr/share/sounds/sf2"};

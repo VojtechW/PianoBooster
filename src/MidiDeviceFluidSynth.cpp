@@ -28,6 +28,10 @@
 
 #include "MidiDeviceFluidSynth.h"
 
+#include <QFileInfo>
+
+#include <algorithm>
+
 static fluid_settings_t* s_debug_fluid_settings;
 
 static void debug_settings_foreach_func (void *data,
@@ -101,36 +105,52 @@ bool CMidiDeviceFluidSynth::openMidiPort(midiType_t type, const QString &portNam
     m_fluidSettings = new_fluid_settings();
 
     // Change the settings if necessary
-    fluid_settings_setnum(m_fluidSettings, "synth.sample-rate", qsettings->value("FluidSynth/sampleRateCombo",22050).toInt());
-    fluid_settings_setint(m_fluidSettings, "audio.period-size", qsettings->value("FluidSynth/bufferSizeCombo", 128).toInt());
-    fluid_settings_setint(m_fluidSettings, "audio.periods", qsettings->value("FluidSynth/bufferCountCombo", 4).toInt());
+    fluid_settings_setnum(m_fluidSettings, "synth.sample-rate", qsettings->value("FluidSynth/sampleRateCombo", defaultSampleRate()).toInt());
+    fluid_settings_setint(m_fluidSettings, "audio.period-size", qsettings->value("FluidSynth/bufferSizeCombo", defaultPeriodSize()).toInt());
+    fluid_settings_setint(m_fluidSettings, "audio.periods", qsettings->value("FluidSynth/bufferCountCombo", defaultPeriods()).toInt());
 
 #if !defined (Q_OS_WINDOWS)
-    fluid_settings_setstr(m_fluidSettings, "audio.driver", qsettings->value("FluidSynth/audioDriverCombo", "pulseaudio").toString().toStdString().c_str());
+    fluid_settings_setstr(m_fluidSettings, "audio.driver", qsettings->value("FluidSynth/audioDriverCombo", defaultAudioDriver()).toString().toStdString().c_str());
 #endif
+
+    // A little room ambience makes the piano sound much more natural; reverb and chorus cost some
+    // CPU in the audio thread but add no latency.
+    fluid_settings_setint(m_fluidSettings, "synth.reverb.active", qsettings->value("FluidSynth/reverbCheck", true).toBool() ? 1 : 0);
+    fluid_settings_setint(m_fluidSettings, "synth.chorus.active", qsettings->value("FluidSynth/chorusCheck", false).toBool() ? 1 : 0);
+    fluid_settings_setnum(m_fluidSettings, "synth.reverb.room-size", 0.45);
+    fluid_settings_setnum(m_fluidSettings, "synth.reverb.damp", 0.35);
+    fluid_settings_setnum(m_fluidSettings, "synth.reverb.width", 0.7);
+    fluid_settings_setnum(m_fluidSettings, "synth.reverb.level", 0.4);
 
     // Create the synthesizer.
     m_synth = new_fluid_synth(m_fluidSettings);
-#if (FLUIDSYNTH_VERSION_MAJOR >= 2) && (FLUIDSYNTH_VERSION_MINOR >= 2)
-    fluid_synth_reverb_on(m_synth, -1, 0);
-    fluid_synth_chorus_on(m_synth, -1, 0);
-#else
-    fluid_synth_set_reverb_on(m_synth, 0);
-    fluid_synth_set_chorus_on(m_synth, 0);
-#endif
 
     // Create the audio driver.
     m_audioDriver = new_fluid_audio_driver(m_fluidSettings, m_synth);
+
+    // Extra SoundFonts provide instruments for the pianist (e.g. a dedicated grand piano or
+    // electric piano). Only the one in use is loaded now (a big piano bank takes a few seconds and
+    // a lot of memory), the others when they are chosen. It is loaded before the main General
+    // MIDI SoundFont, so that one stays on top of FluidSynth's font stack and is what the song's
+    // program changes select.
+    m_fontIds.clear();
+    const QString pianistFont = qsettings->value("Sound/PianistFont").toString();
+    if (!pianistFont.isEmpty() && pianistFont != fontList.at(0))
+        addSoundFont(pianistFont);
 
     QString pathName = fontList.at(0);
     ppLogDebug("Sound font %s", qPrintable(pathName));
     m_soundFontId = fluid_synth_sfload(m_synth, qPrintable(pathName), 0);
     if (m_soundFontId == -1)
         return false;
+    m_fontIds.insert(pathName, m_soundFontId);
+    for (bool &locked : m_channelLocked)
+        locked = false;
 
     for (int channel = 0; channel < MAX_MIDI_CHANNELS ; channel++)
     {
-         fluid_synth_program_change(m_synth, channel, GM_PIANO_PATCH);
+        m_channelBank[channel] = (channel == MIDI_DRUM_CHANNEL) ? DRUM_BANK : 0;
+        setMainFontProgram(channel, GM_PIANO_PATCH);
     }
     fluid_synth_set_gain(m_synth, qsettings->value("FluidSynth/masterGainSpin", FLUID_DEFAULT_GAIN).toFloat()/100.0f );
     m_validConnection = true;
@@ -155,7 +175,10 @@ void CMidiDeviceFluidSynth::closeMidiPort(midiType_t type, int index)
     /* Clean up */
     delete_fluid_audio_driver(m_audioDriver);
     delete_fluid_synth(m_synth);
+    m_fontIds.clear();
     delete_fluid_settings(m_fluidSettings);
+    m_audioDriver = nullptr;
+    m_synth = nullptr;
     m_fluidSettings = nullptr;
     m_rawDataIndex = 0;
 
@@ -182,12 +205,18 @@ void CMidiDeviceFluidSynth::playMidiEvent(const CMidiEvent & event)
             break;
 
         case MIDI_CONTROL_CHANGE: //CONTROL_CHANGE:
+            if (event.data1() == 0 && channel != MIDI_DRUM_CHANNEL) // bank select (MSB), used by the next program change
+                m_channelBank[channel] = event.data2();
+            if (m_channelLocked[channel] && (event.data1() == 0 || event.data1() == 32))
+                break; // keep the chosen instrument: ignore bank selects
             fluid_synth_cc(m_synth, channel, event.data1(), event.data2());
             //ppLogTrace("MIDI_CONTROL_CHANGE %d %d %d", channel, event.data1(), event.data2());
             break;
 
         case MIDI_PROGRAM_CHANGE: //PROGRAM_CHANGE:
-            fluid_synth_program_change(m_synth, channel, event.programme());
+            if (m_channelLocked[channel])
+                break; // keep the chosen instrument
+            setMainFontProgram(channel, event.programme());
             break;
 
         case MIDI_CHANNEL_PRESSURE: //AFTERTOUCH: 2 bytes only
@@ -212,6 +241,122 @@ void CMidiDeviceFluidSynth::playMidiEvent(const CMidiEvent & event)
             break;
     }
     //event.printDetails(); // useful for debugging
+}
+
+// The song's instruments always come from the main General MIDI SoundFont. FluidSynth's own
+// program change would search all loaded SoundFonts, newest first, so an instrument bank loaded
+// later (e.g. a piano with its only preset at 0:0) would replace the accompaniment's pianos.
+void CMidiDeviceFluidSynth::setMainFontProgram(int channel, int program)
+{
+    if (fluid_synth_program_select(m_synth, channel, m_soundFontId, m_channelBank[channel], program) == FLUID_OK)
+        return;
+    // the bank is not in the main SoundFont: try its default bank, then whatever FluidSynth finds
+    if (fluid_synth_program_select(m_synth, channel, m_soundFontId, (channel == MIDI_DRUM_CHANNEL) ? DRUM_BANK : 0, program) != FLUID_OK)
+        fluid_synth_program_change(m_synth, channel, program);
+}
+
+bool CMidiDeviceFluidSynth::addSoundFont(const QString &font)
+{
+    if (m_synth == nullptr || font.isEmpty())
+        return false;
+    if (m_fontIds.contains(font))
+        return true;
+    if (!QFileInfo(font).isFile())
+        return false;
+    // loading reads the samples into memory, which can take a moment for a big piano SoundFont
+    const int id = fluid_synth_sfload(m_synth, qPrintable(font), 0);
+    if (id == FLUID_FAILED)
+    {
+        ppLogWarn("Could not load the SoundFont %s", qPrintable(font));
+        return false;
+    }
+    m_fontIds.insert(font, id);
+    return true;
+}
+
+QList<SoundPreset> CMidiDeviceFluidSynth::soundPresets()
+{
+    QList<SoundPreset> presets;
+    if (m_synth == nullptr)
+        return presets;
+    for (auto it = m_fontIds.constBegin(); it != m_fontIds.constEnd(); ++it)
+    {
+        fluid_sfont_t *sfont = fluid_synth_get_sfont_by_id(m_synth, it.value());
+        if (sfont == nullptr)
+            continue;
+        const bool mainFont = it.value() == m_soundFontId;
+        const QString fontName = QFileInfo(it.key()).completeBaseName();
+        fluid_sfont_iteration_start(sfont);
+        while (fluid_preset_t *preset = fluid_sfont_iteration_next(sfont))
+        {
+            const int bank = fluid_preset_get_banknum(preset);
+            const int program = fluid_preset_get_num(preset);
+            // from the General MIDI bank offer the keyboard instruments: pianos, electric pianos,
+            // chromatic percussion (vibraphone, ...) and organs; other banks are offered complete
+            if (mainFont && (bank != 0 || program > 23))
+                continue;
+            if (bank == 128) // drum kits
+                continue;
+            presets.append({it.key(), fontName, bank, program, QString::fromUtf8(fluid_preset_get_name(preset))});
+        }
+    }
+    // the extra SoundFonts that are not loaded yet: offered as one entry each (program -1)
+    for (const QString &font : qsettings->value("FluidSynth/ExtraSoundFonts").toStringList())
+        if (!m_fontIds.contains(font) && QFileInfo(font).isFile())
+            presets.append({font, QFileInfo(font).completeBaseName(), -1, -1, QFileInfo(font).completeBaseName()});
+
+    std::sort(presets.begin(), presets.end(), [this](const SoundPreset &a, const SoundPreset &b) {
+        const bool aMain = m_fontIds.value(a.font) == m_soundFontId;
+        const bool bMain = m_fontIds.value(b.font) == m_soundFontId;
+        if (aMain != bMain)
+            return !aMain; // the dedicated instrument banks first
+        if (a.font != b.font)
+            return a.fontName < b.fontName;
+        return (a.bank != b.bank) ? a.bank < b.bank : a.program < b.program;
+    });
+    return presets;
+}
+
+bool CMidiDeviceFluidSynth::selectChannelSound(int channel, const QString &font, int bank, int program)
+{
+    if (m_synth == nullptr || channel < 0 || channel >= MAX_MIDI_CHANNELS)
+        return false;
+    if (font.isEmpty())
+    {
+        if (m_channelLocked[channel]) // give the channel back with the main SoundFont's piano
+            setMainFontProgram(channel, GM_PIANO_PATCH);
+        m_channelLocked[channel] = false;
+        return true;
+    }
+    if (!addSoundFont(font))
+        return false;
+    if (program < 0) // "the SoundFont's first instrument"
+    {
+        fluid_sfont_t *sfont = fluid_synth_get_sfont_by_id(m_synth, m_fontIds.value(font));
+        fluid_sfont_iteration_start(sfont);
+        fluid_preset_t *preset = fluid_sfont_iteration_next(sfont);
+        if (preset == nullptr)
+            return false;
+        bank = fluid_preset_get_banknum(preset);
+        program = fluid_preset_get_num(preset);
+    }
+    if (fluid_synth_program_select(m_synth, channel, m_fontIds.value(font), bank, program) != FLUID_OK)
+        return false;
+    m_channelLocked[channel] = true;
+
+    // Free the memory of instrument banks that are no longer used (a big piano takes over a GB).
+    // Only the pianist's channel is ever locked, so the font just selected is the only one in use.
+    for (auto it = m_fontIds.begin(); it != m_fontIds.end();)
+    {
+        if (it.value() != m_soundFontId && it.key() != font)
+        {
+            fluid_synth_sfunload(m_synth, static_cast<unsigned int>(it.value()), 1);
+            it = m_fontIds.erase(it);
+        }
+        else
+            ++it;
+    }
+    return true;
 }
 
 // Return the number of events waiting to be read from the midi device

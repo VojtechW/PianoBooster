@@ -80,10 +80,13 @@ void CSong::midiFileInfo()
 
     // Read the next events to find the active channels
     CMidiEvent event;
+    CHighway* highway = m_scoreWin->getHighway();
+    highway->beginSong();
     while ( true )
     {
         event = m_midiFile->readMidiEvent();
         m_trackList->examineMidiEvent(event);
+        highway->collectEvent(event);
 
         if (event.type() == MIDI_PB_timeSignature)
         {
@@ -93,6 +96,7 @@ void CSong::midiFileInfo()
         if (event.type() == MIDI_PB_EOF)
             break;
     }
+    highway->endSong();
 }
 
 void CSong::rewind()
@@ -121,6 +125,7 @@ void CSong::setActiveChannel(int chan)
 {
     this->CConductor::setActiveChannel(chan);
     m_scoreWin->setActiveChannel(chan);
+    setSongPianistProgram(m_trackList->getChannelProgram(chan));
     regenerateChordQueue();
 }
 

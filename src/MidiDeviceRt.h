@@ -30,6 +30,9 @@
 #include "MidiDeviceBase.h"
 #include "rtmidi/RtMidi.h"
 
+#include <array>
+#include <atomic>
+
 class CMidiDeviceRt : public CMidiDeviceBase
 {
     virtual void init();
@@ -37,6 +40,7 @@ class CMidiDeviceRt : public CMidiDeviceBase
     virtual void playMidiEvent(const CMidiEvent & event);
     virtual int checkMidiInput();
     virtual CMidiEvent readMidiInput();
+    qint64 lastInputAgeUs() { return m_lastInputAgeUs; }
 
     virtual QStringList getMidiPortList(midiType_t type);
 
@@ -63,11 +67,25 @@ private:
     RtMidiOut *m_midiout;
     RtMidiIn *m_midiin;
 
-    double m_stamp;
 
     // 0 for input, 1 for output
     int m_midiPorts[2];      // select which MIDI output port to open
     std::vector<unsigned char> m_inputMessage;
+
+    // MIDI input arrives on the RtMidi (CoreMIDI/ALSA) thread and is handed to the GUI thread
+    // through this single-producer/single-consumer ring, stamped with its arrival time so
+    // the timing judgement can compensate for how long it waited.
+    struct InputMessage {
+        unsigned char bytes[3];
+        unsigned char length;
+        qint64 arrivalUs;
+    };
+    static constexpr size_t INPUT_RING_SIZE = 1024; // power of two
+    std::array<InputMessage, INPUT_RING_SIZE> m_inputRing;
+    std::atomic<size_t> m_inputRingHead{0}; // written by the producer (RtMidi thread)
+    std::atomic<size_t> m_inputRingTail{0}; // written by the consumer (GUI thread)
+    qint64 m_lastInputAgeUs = 0;
+    static void inputCallback(double timeStamp, std::vector<unsigned char> *message, void *userData);
     unsigned char m_savedRawBytes[40]; // Raw data is used for used for a SYSTEM_EVENT
     unsigned int m_rawDataIndex;
 

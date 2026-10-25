@@ -52,6 +52,10 @@ public:
     void refresh();
 
     void loadBookList();
+    //! show the stars earned for each song in the song list
+    void updateSongStars();
+    //! select the first song of the book that does not have three stars yet
+    bool selectNextLesson();
     void setBookName(const QString &bookName);
     void setSongName(const QString &songName);
     int getSongIndex() {return songCombo->currentIndex();}

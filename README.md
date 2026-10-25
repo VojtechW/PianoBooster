@@ -31,6 +31,11 @@ Piano Booster is a free (Open Source) program, available from: <https://www.pian
 * Measures the accuracy of your playing.
 * Timing markers show if you are playing ahead or behind the beat.
 * A different instrument sound is used for the right and wrong notes that you play on the piano.
+* Falling-notes view with per-note timing feedback (Perfect / Good / Early / Late / Miss), scores and stars.
+* Practice loops selected on the progress bar, with automatic speed-up, count-in and metronome.
+* Daily practice goal, day streaks and best results per song.
+
+See [doc/practice-mode.md](doc/practice-mode.md) for how to practise with the falling-notes view.
 
 
 # GETTING STARTED

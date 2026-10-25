@@ -71,6 +71,7 @@ public:
 
     void setPlayUptoBar(double bar);
     double getPlayUptoBar(){ return m_playUptoBar;}
+    double getPlayFromBar(){ return m_playFromBar;}
     void setLoopingBars(double bars);
     double getLoopingBars(){ return m_loopingBars;}
 
@@ -80,6 +81,7 @@ public:
 
         setTimeSig( 0 , 0);
         setTimeSig(top, bottom);
+        m_flushTicks = false; // a seek interrupted before (e.g. stopped during the count-in) must not leak
         checkGotoBar();
     }
     void getTimeSig(int *top, int *bottom) {
@@ -92,11 +94,13 @@ public:
 
     //
     int getBarNumber(){ return m_barCounter;}
+    int getBeatNumber(){ return m_beatCounter;}
 
     double getCurrentBarPos()
     {
-        return m_barCounter + static_cast<double>(m_beatCounter)/static_cast<double>(m_currentTimeSigBottom) +
-            static_cast<double>(m_deltaTime)/static_cast<double>(m_beatLength * m_currentTimeSigBottom * SPEED_ADJUST_FACTOR);
+        // the fraction of the bar is beats / beats-per-bar (the time signature's top number)
+        return m_barCounter + static_cast<double>(m_beatCounter)/static_cast<double>(m_currentTimeSigTop) +
+            static_cast<double>(m_deltaTime)/static_cast<double>(m_beatLength * m_currentTimeSigTop * SPEED_ADJUST_FACTOR);
     }
 
     bool seekingBarNumber() { return m_seekingBarNumber;}

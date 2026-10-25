@@ -32,6 +32,7 @@
 #include "Scroll.h"
 #include "Piano.h"
 #include "Settings.h"
+#include "Highway.h"
 
 class CScore : public CDraw
 {
@@ -69,12 +70,24 @@ public:
     {
         for (auto *const scroll : m_scroll)
             scroll->transpose(semitones);
+        m_highway.setTranspose(semitones);
     }
 
     void reset()
     {
         for (auto *const scroll : m_scroll)
             scroll->reset();
+        m_highway.reset();
+    }
+
+    CHighway* getHighway() { return &m_highway; }
+
+    //! the notation is not drawn in the falling-notes view: stop compiling its display lists
+    //! (needs the GL context to be current)
+    void setNotationShown(bool show)
+    {
+        if (m_activeScroll >= 0 && m_scroll[m_activeScroll]->isShown() != show)
+            m_scroll[m_activeScroll]->showScroll(show);
     }
 
     void drawScrollingSymbols(bool show = true)
@@ -87,6 +100,7 @@ public:
     {
         for (auto *const scroll : m_scroll)
             scroll->scrollDeltaTime(ticks);
+        m_highway.scrollDeltaTime(ticks);
     }
 
     void setRatingObject(CRating* rating)
@@ -109,6 +123,7 @@ public:
         if (channel < 0 || channel >= arraySize(m_scroll))
             return;
         newActiveSroll = channel;
+        m_highway.setActiveChannel(channel);
 
         if (m_activeScroll != newActiveSroll)
         {
@@ -141,6 +156,7 @@ protected:
 private:
     CRating* m_rating;
     CScroll* m_scroll[MAX_MIDI_CHANNELS];
+    CHighway m_highway;
     int m_activeScroll;
     GLuint m_scoreDisplayListId;
     GLuint m_stavesDisplayListId;

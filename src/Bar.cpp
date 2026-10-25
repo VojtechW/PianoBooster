@@ -28,6 +28,8 @@
 
 #include "Bar.h"
 
+#include <algorithm>
+
 #define OPTION_DEBUG_BAR     0
 #if OPTION_DEBUG_BAR
 #define ppDEBUG_BAR(args)     ppLogDebug args
@@ -84,9 +86,14 @@ qint64 CBar::addDeltaTime(qint64 ticks)
 
 qint64 CBar::goToBarNumer()
 {
-    const auto ticks = static_cast<qint64>(m_playFromBar - getCurrentBarPos()) * m_beatLength * SPEED_ADJUST_FACTOR + 1;
-    addDeltaTime(ticks);
-    return ticks;
+    // Approach the wanted position at most one beat at a time and stop just short of it, so that
+    // everything before it is still processed while seeking (silently); only the last step of a
+    // couple of ticks crosses the start point.
+    const double gap = (m_playFromBar - getCurrentBarPos()) * static_cast<double>(m_barLength * SPEED_ADJUST_FACTOR);
+    qint64 ticks = 2;
+    if (gap > 2.0)
+        ticks = std::min(static_cast<qint64>(gap) - 1, m_beatLength * SPEED_ADJUST_FACTOR);
+    return addDeltaTime(ticks); // 0 when CBar swallowed these ticks, so the song stays in step
 }
 
 void CBar::checkGotoBar()

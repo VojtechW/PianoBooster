@@ -10,7 +10,7 @@ else()
    option(USE_BUNDLED_RTMIDI "Build with bundled rtmidi" ON)
 endif()
 
-cmake_minimum_required(VERSION 2.4)
+cmake_minimum_required(VERSION 3.10)
 if(COMMAND cmake_policy)
     cmake_policy(SET CMP0003 NEW)
 endif(COMMAND cmake_policy)
@@ -21,6 +21,10 @@ endif(WIN32)
 
 # set project's name
 PROJECT( pianobooster )
+
+# C++17 (needed by Qt 6 and used by the practice-mode code)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 cmake_policy(SET CMP0020 NEW)
 cmake_policy(SET CMP0043 NEW)
@@ -98,8 +102,7 @@ if(${CMAKE_SYSTEM} MATCHES "Windows")
 endif(${CMAKE_SYSTEM} MATCHES "Windows")
 
 if(${CMAKE_SYSTEM} MATCHES "Darwin")
-    ADD_DEFINITIONS(-D__MACOSX_CORE__)
-    ADD_DEFINITIONS(-std=c++11)
+    ADD_DEFINITIONS(-D__MACOSX_CORE__ -DGL_SILENCE_DEPRECATION)
     LINK_LIBRARIES("-framework CoreMidi -framework CoreAudio -framework CoreFoundation -framework OpenGL")
 endif(${CMAKE_SYSTEM} MATCHES "Darwin")
 
@@ -124,7 +127,7 @@ endif(WITH_INTERNAL_FLUIDSYNTH)
 # (CMAKE_BINARY_DIR holds a path to the build directory, while INCLUDE_DIRECTORIES() works just like INCLUDEPATH from qmake)
 INCLUDE_DIRECTORIES(${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_BINARY_DIR} ${OPENGL_INCLUDE_DIR} ${FTGL_INCLUDE_DIR})
 
-SET(PB_BASE_SRCS MidiFile.cpp MidiTrack.cpp Song.cpp Conductor.cpp Util.cpp
+SET(PB_BASE_SRCS MidiFile.cpp MidiTrack.cpp Song.cpp Conductor.cpp Util.cpp Performance.cpp
     Chord.cpp Tempo.cpp MidiDevice.cpp MidiDeviceRt.cpp ${PB_BASE_SRCS})
 SET(PB_BASE_HDR MidiFile.h MidiTrack.h Song.h Conductor.h Rating.h Util.h
     Chord.h Tempo.h MidiDevice.h)
@@ -172,10 +175,13 @@ SET( PIANOBOOSTER_SRCS
     GuiPreferencesDialog.cpp
     GuiSongDetailsDialog.cpp
     GuiLoopingPopup.cpp
+    GuiProgressDialog.cpp
+    Progress.cpp
     GlView.cpp
     ${PB_BASE_SRCS}
     StavePosition.cpp
     Score.cpp
+    Highway.cpp
     Cfg.cpp
     Piano.cpp
     Draw.cpp
@@ -201,6 +207,7 @@ SET( PIANOBOOSTER_MOC_HDRS
     GuiPreferencesDialog.h
     GuiSongDetailsDialog.h
     GuiLoopingPopup.h
+    GuiProgressDialog.h
 )
 
 # some .ui files
@@ -375,3 +382,15 @@ endif ()
 
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/../music/BoosterMusicBooks.zip ${CMAKE_CURRENT_BINARY_DIR}/ COPYONLY)
 
+
+# Unit tests for the practice logic (run with: ctest, or build/build/pianobooster_tests)
+option(BUILD_TESTS "Build the unit tests" ON)
+if (BUILD_TESTS)
+    find_package("${QT_PACKAGE_NAME}" COMPONENTS Test)
+    if (${QT_PACKAGE_NAME}Test_FOUND)
+        enable_testing()
+        add_executable(pianobooster_tests tests/test_core.cpp Performance.cpp Progress.cpp)
+        target_link_libraries(pianobooster_tests ${QT_PACKAGE_NAME}::Core ${QT_PACKAGE_NAME}::Test)
+        add_test(NAME pianobooster_tests COMMAND pianobooster_tests)
+    endif ()
+endif ()

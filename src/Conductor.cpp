@@ -261,6 +261,7 @@ void CConductor::setActiveHand(whichPart_t hand)
 void CConductor::setPlayMode(playMode_t mode)
 {
     m_playMode = mode;
+    m_performance.reset(m_playMode == PB_PLAY_MODE_playAlong);
     if ( m_playMode == PB_PLAY_MODE_listen )
         resetWantedChord();
     outputBoostVolume();
@@ -289,14 +290,44 @@ void CConductor::outputPianoVolume()
     playTrackEvent(event); // Play the midi note or event
 }
 
+void CConductor::setPianistChannels(int goodChan, int badChan)
+{
+    if (goodChan != m_pianistGoodChan)
+        selectChannelSound(m_pianistGoodChan, QString(), 0, 0); // give the old channel back to the song
+    m_pianistGoodChan = goodChan;
+    m_pianistBadChan = badChan;
+    if (m_scoreWin) // not while the constructor sets the defaults (no output device yet)
+        updatePianoSounds();
+}
+
+void CConductor::setPianistSound(const QString &font, int bank, int program, bool useSongInstrument)
+{
+    m_pianistSoundFont = font;
+    m_pianistSoundBank = bank;
+    m_pianistSoundProgram = program;
+    m_useSongInstrument = useSongInstrument;
+    updatePianoSounds();
+}
+
 void CConductor::updatePianoSounds()
 {
     CMidiEvent event;
 
     if (m_cfg_rightNoteSound>=0) // ignore if set to -1 (tr("None"))
     {
-        event.programChangeEvent(0, m_pianistGoodChan, m_cfg_rightNoteSound);
-        playTrackEvent( event );
+        // a chosen SoundFont instrument (internal synthesizer only), else a General MIDI patch:
+        // the song's own instrument for this part, or the one from the keyboard setup
+        if (m_useSongInstrument || m_pianistSoundFont.isEmpty() ||
+                !selectChannelSound(m_pianistGoodChan, m_pianistSoundFont, m_pianistSoundBank, m_pianistSoundProgram))
+        {
+            if (!m_useSongInstrument && !m_pianistSoundFont.isEmpty())
+                ppLogWarn("Could not select the sound %s %d:%d, using a General MIDI patch", qPrintable(m_pianistSoundFont),
+                          m_pianistSoundBank, m_pianistSoundProgram);
+            selectChannelSound(m_pianistGoodChan, QString(), 0, 0);
+            const int program = (m_useSongInstrument && m_songPianistProgram >= 0) ? m_songPianistProgram : m_cfg_rightNoteSound;
+            event.programChangeEvent(0, m_pianistGoodChan, program);
+            playTrackEvent( event );
+        }
     }
     if (m_cfg_wrongNoteSound>=0)
     {
@@ -332,9 +363,17 @@ void CConductor::playMusic(bool start)
     reconnectMidi();
     m_playing = start;
     allSoundOff();
+    m_countingIn = false;
     if (start)
     {
         resetAllChannels();
+        m_lastMetronomeBeat = -1;
+        if (m_cfg_countIn && m_playMode != PB_PLAY_MODE_listen)
+        {
+            m_countingIn = true;
+            m_countInBeatsLeft = m_bar.getTimeSigTop();
+            m_countInTicks = 0;
+        }
 
         testWrongNoteSound(false);
         outputBoostVolume();
@@ -491,6 +530,7 @@ void CConductor::turnOnKeyboardLights(bool on)
 
 void CConductor::fetchNextChord()
 {
+    m_judgedNotes.clear();
     m_followState = PB_FOLLOW_searching;
     m_followPlayingTimeOut = false;
 
@@ -637,8 +677,10 @@ void CConductor::pianistInput(CMidiEvent inputNote)
     if (inputNote.type() == MIDI_NOTE_ON)
     {
 
-        if ( validatePianistNote(inputNote) == true)
+        // during the count-in nothing is judged yet: the keys just sound
+        if ( !m_countingIn && validatePianistNote(inputNote) == true)
         {
+            judgeGoodNote(inputNote.note());
             m_goodPlayedNotes.addNote(hand, inputNote.note());
             m_piano->addPianistNote(hand, inputNote,true);
             qint64 pianistTiming;
@@ -655,6 +697,7 @@ void CConductor::pianistInput(CMidiEvent inputNote)
                 if (m_chordDeltaTime < 0)
                     m_tempo.removePlayingTicks(-m_chordDeltaTime);
 
+                judgeRemainingNotes(Judgement::skipped);
                 m_goodPlayedNotes.clear();
                 fetchNextChord();
                 // count the good notes so that the live percentage looks OK
@@ -670,12 +713,14 @@ void CConductor::pianistInput(CMidiEvent inputNote)
         }
         else
         {
-            if (m_playing == true)
+            if (m_playing == true && !m_countingIn) // playing along with the count-in is not wrong
             {
                 goodSound = false;
 
                 m_piano->addPianistNote(hand, inputNote, false);
                 m_rating.wrongNotes(1);
+                m_performance.recordWrong();
+                setKeyState(inputNote.note(), CHighway::KEY_BAD);
 
                 if (m_settings->followThroughErrors() && m_playMode == PB_PLAY_MODE_followYou) // If the setting is checked, errors cause following too
                   {
@@ -689,6 +734,7 @@ void CConductor::pianistInput(CMidiEvent inputNote)
                       {
                     // Register the wrong note in the ratings calculation (if not as missed notes, I don't believe it's factored in)
                     missedNotesColor(Cfg::pianoBadColor());
+                    judgeRemainingNotes(Judgement::missed);
                     m_rating.lateNotes(m_wantedChord.length() - m_goodPlayedNotes.length());
                     setEventBits(EVENT_BITS_forceRatingRedraw);
                     fetchNextChord(); // Skip through the wrong note and continue to the next
@@ -696,6 +742,7 @@ void CConductor::pianistInput(CMidiEvent inputNote)
                     // Was the next note the one keyed by accident (dyslexia)?  If so, validate it instead and continue as usual.
                     if (m_wantedChord.searchChord(inputNote.note(), m_transpose)) // replaces validatePianistNote ignoring out-of-zone
                       {
+                        judgeGoodNote(inputNote.note());
                         m_goodPlayedNotes.addNote(hand, inputNote.note());
                         m_piano->addPianistNote(hand, inputNote,true);
                         qint64 pianistTiming;
@@ -712,6 +759,7 @@ void CConductor::pianistInput(CMidiEvent inputNote)
                         if (m_chordDeltaTime < 0)
                           m_tempo.removePlayingTicks(-m_chordDeltaTime);
 
+                        judgeRemainingNotes(Judgement::skipped);
                         m_goodPlayedNotes.clear();
                         fetchNextChord();
                         // count the good notes so that the live percentage looks OK
@@ -736,11 +784,15 @@ void CConductor::pianistInput(CMidiEvent inputNote)
 
             }
             else
+            {
                 m_piano->addPianistNote(hand, inputNote, true);
+                setKeyState(inputNote.note(), CHighway::KEY_GOOD);
+            }
         }
     }
     else if (inputNote.type() == MIDI_NOTE_OFF)
     {
+        setKeyState(inputNote.note(), CHighway::KEY_UP);
         if (m_piano->removePianistNote(inputNote.note()) ==  true)
             goodSound = false;
         bool hasNote = m_goodPlayedNotes.removeNote(inputNote.note());
@@ -853,6 +905,7 @@ void CConductor::followPlaying()
         if (m_chordDeltaTime > m_cfg_playZoneLate )
         {
             missedNotesColor(Cfg::playedStoppedColor());
+            judgeRemainingNotes(Judgement::missed);
             fetchNextChord();
             m_rating.lateNotes(m_wantedChord.length() - m_goodPlayedNotes.length());
             setEventBits( EVENT_BITS_forceRatingRedraw);
@@ -887,6 +940,47 @@ void CConductor::findImminentNotesOff()
     }
 }
 
+void CConductor::setKeyState(int note, CHighway::keyState_t state)
+{
+    if (m_scoreWin)
+        m_scoreWin->getHighway()->setKeyState(note, state);
+}
+
+// A correct note of the wanted chord was pressed: judge its timing (once per note).
+void CConductor::judgeGoodNote(int inputNote)
+{
+    setKeyState(inputNote, CHighway::KEY_GOOD);
+    if (m_judgedNotes.searchChord(inputNote) || m_scoreWin == nullptr)
+        return; // each note of the wanted chord is judged once, even if it is played again
+    m_judgedNotes.addNote(PB_PART_both, inputNote);
+    Judgement judgement;
+    if (m_followPlayingTimeOut)
+        judgement = m_performance.recordLateHit(); // the music had to stop and wait
+    else
+    {
+        // m_pianistTiming was advanced before the input queue was read, so take off the time
+        // the event spent waiting in the queue.
+        const double offsetMs = m_tempo.ticksToMSec(m_pianistTiming) - static_cast<double>(m_inputAgeUs) / 1000.0
+                                - m_timingCalibrationMs;
+        judgement = m_performance.recordHit(offsetMs);
+    }
+    m_scoreWin->getHighway()->judgeNote(inputNote - m_transpose, judgement);
+}
+
+// The wanted chord is finished: judge the notes of it that were not played.
+void CConductor::judgeRemainingNotes(Judgement judgement)
+{
+    for (int i = 0; i < m_wantedChord.length(); i++)
+    {
+        CNote note = m_wantedChord.getNote(i);
+        if (m_judgedNotes.searchChord(note.pitch() + m_transpose) || m_scoreWin == nullptr) // judged notes are sounding pitches
+            continue;
+        if (judgement == Judgement::missed)
+            m_performance.recordMissed();
+        m_scoreWin->getHighway()->judgeNote(note.pitch(), judgement);
+    }
+}
+
 void CConductor::missedNotesColor(CColor color)
 {
     int i;
@@ -905,8 +999,32 @@ void CConductor::realTimeEngine(qint64 mSecTicks)
     if (!m_followPlayingTimeOut)
         m_pianistTiming += ticks;
 
+    static const bool logLatency = qEnvironmentVariableIsSet("PB_LATENCY_LOG");
     while (checkMidiInput() > 0)
-        expandPianistInput(readMidiInput());
+    {
+        CMidiEvent inputEvent = readMidiInput();
+        m_inputAgeUs = lastInputAgeUs();
+        m_lastPianistInputUs = monotonicTimeUs();
+        if (logLatency && inputEvent.type() == MIDI_NOTE_ON)
+        {
+            fprintf(stderr, "PB_LATENCY input_age_us=%lld\n", static_cast<long long>(m_inputAgeUs));
+            fprintf(stderr, "PB_NOTE t=%lld note=%d songBeat=%.3f wanted=%d chordDeltaMs=%.1f pianistTimingMs=%.1f\n",
+                    static_cast<long long>(monotonicTimeUs() / 1000), inputEvent.note(),
+                    static_cast<double>(m_scoreWin->getHighway()->now()) / (CMidiFile::getPulsesPerQuarterNote() * SPEED_ADJUST_FACTOR),
+                    m_wantedChord.length() ? m_wantedChord.getNote(0).pitch() : -1,
+                    m_tempo.ticksToMSec(m_chordDeltaTime), m_tempo.ticksToMSec(m_pianistTiming));
+        }
+        expandPianistInput(inputEvent);
+    }
+    m_inputAgeUs = 0;
+
+    // count in once any seek to the start bar is done (seeking needs the engine to run)
+    if (m_countingIn && m_playing && !seekingBarNumber() && countIn(ticks))
+    {
+        if (!m_followPlayingTimeOut)
+            m_pianistTiming -= ticks; // the song time does not move during the count-in
+        return;
+    }
 
     if (getfollowState() == PB_FOLLOW_waiting )
     {
@@ -958,6 +1076,7 @@ void CConductor::realTimeEngine(qint64 mSecTicks)
         ticks = m_bar.goToBarNumer();
 
     setEventBits( m_bar.readEventBits());
+    metronomeTick();
 
 #if OPTION_DEBUG_CONDUCTOR
     if (m_realTimeEventBits | EVENT_BITS_newBarNumber)
@@ -1041,6 +1160,64 @@ void CConductor::realTimeEngine(qint64 mSecTicks)
     }
 }
 
+void CConductor::metronomeClick(bool accent)
+{
+    CMidiEvent event;
+    if (m_lastClickNote >= 0)
+    {
+        event.noteOffEvent(0, MIDI_DRUM_CHANNEL, m_lastClickNote, 0);
+        playMidiEvent(event);
+    }
+    m_lastClickNote = accent ? 76 : 77; // GM hi / low wood block
+    event.noteOnEvent(0, MIDI_DRUM_CHANNEL, m_lastClickNote, accent ? 115 : 80);
+    playMidiEvent(event);
+}
+
+// Count one bar in before the music starts; returns true while still counting.
+bool CConductor::countIn(qint64 ticks)
+{
+    // Use the tempo the song starts with, it is only read from the song when the music plays.
+    for (int i = 0; i < m_songEventQueue->length() && i < 20; i++)
+    {
+        CMidiEvent event = m_songEventQueue->index(i);
+        if (event.deltaTime() > 0)
+            break;
+        if (event.type() == MIDI_PB_tempo)
+        {
+            m_tempo.setMidiTempo(event.data1());
+            break;
+        }
+    }
+
+    m_countInTicks -= ticks;
+    while (m_countInTicks <= 0)
+    {
+        if (m_countInBeatsLeft <= 0)
+        {
+            m_countingIn = false;
+            if (qEnvironmentVariableIsSet("PB_LATENCY_LOG"))
+                fprintf(stderr, "PB_MUSIC_START t=%lld\n", static_cast<long long>(monotonicTimeUs() / 1000));
+            setEventBits(EVENT_BITS_forceFullRedraw);
+            return false;
+        }
+        metronomeClick(m_countInBeatsLeft == m_bar.getTimeSigTop());
+        m_countInBeatsLeft--;
+        m_countInTicks += m_bar.getBeatLength() * SPEED_ADJUST_FACTOR;
+    }
+    return true;
+}
+
+void CConductor::metronomeTick()
+{
+    if (!m_cfg_metronome || seekingBarNumber())
+        return;
+    const int beat = m_bar.getBarNumber() * 64 + m_bar.getBeatNumber();
+    if (beat == m_lastMetronomeBeat)
+        return;
+    m_lastMetronomeBeat = beat;
+    metronomeClick(m_bar.getBeatNumber() == 0);
+}
+
 void CConductor::rewind()
 {
     int chan;
@@ -1051,6 +1228,7 @@ void CConductor::rewind()
     }
     m_lastSound = -1;
     m_rating.reset();
+    m_performance.reset(m_playMode == PB_PLAY_MODE_playAlong);
     m_playingDeltaTime = 0;
     m_tempo.reset();
 
@@ -1062,6 +1240,7 @@ void CConductor::rewind()
     m_bar.rewind();
 
     m_goodPlayedNotes.clear();  // The good notes the pianist plays
+    m_judgedNotes.clear();
     if (m_piano)
         m_piano->clear();
     resetWantedChord();

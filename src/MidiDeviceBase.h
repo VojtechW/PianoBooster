@@ -37,6 +37,16 @@
 
 #include "MidiEvent.h"
 
+//! An instrument that a sound bank (SoundFont) provides
+struct SoundPreset
+{
+    QString font;      // the SoundFont file
+    QString fontName;  // a short name for menus
+    int bank = 0;
+    int program = 0;
+    QString name;
+};
+
 class CMidiDeviceBase : public QObject
 {
 public:
@@ -45,6 +55,21 @@ public:
     virtual void playMidiEvent(const CMidiEvent & event) = 0;
     virtual int checkMidiInput() = 0;
     virtual CMidiEvent readMidiInput() = 0;
+    //! how long (in microseconds) the last event returned by readMidiInput() waited in the input queue
+    virtual qint64 lastInputAgeUs() { return 0; }
+
+    // Sound selection, only supported by the internal synthesizer.
+    //! the instruments that can be chosen for the pianist
+    virtual QList<SoundPreset> soundPresets() { return QList<SoundPreset>(); }
+    //! give a channel a fixed instrument from a SoundFont (program changes from the song are then
+    //! ignored on that channel); an empty font releases the channel again
+    virtual bool selectChannelSound(int channel, const QString &font, int bank, int program)
+    {
+        Q_UNUSED(channel) Q_UNUSED(font) Q_UNUSED(bank) Q_UNUSED(program)
+        return false;
+    }
+    //! load another SoundFont (for extra instruments) without restarting the synthesizer
+    virtual bool addSoundFont(const QString &font) { Q_UNUSED(font) return false; }
 
     typedef enum {MIDI_INPUT, MIDI_OUTPUT} midiType_t;
     virtual QStringList getMidiPortList(midiType_t type) = 0;

@@ -51,6 +51,8 @@ public:
     void setPlayButtonState(bool checked, bool atTheEnd = false);
 
     void setSpeed(int value){ speedSpin->setValue(value); }
+    //! start playing from a bar, and loop the given number of bars (0 = no loop)
+    void setLoop(double fromBar, double bars);
     int getSpeed(){return speedSpin->value();}
     void stopMuiscPlaying();
     void updateTranslate();

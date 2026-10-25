@@ -245,6 +245,17 @@ void GuiTopBar::on_startBarSpin_valueChanged(double bar)
     m_song->setPlayFromBar( bar);
 }
 
+void GuiTopBar::setLoop(double fromBar, double bars)
+{
+    if (!m_song) return;
+    stopMuiscPlaying();
+    startBarSpin->blockSignals(true);
+    startBarSpin->setValue(fromBar);
+    startBarSpin->blockSignals(false);
+    m_song->setPlayFromBar(fromBar);
+    m_song->setLoopingBars(bars);
+}
+
 // Stop the muisc playing
 void GuiTopBar::stopMuiscPlaying()
 {

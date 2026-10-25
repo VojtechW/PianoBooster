@@ -77,6 +77,7 @@ public:
 
     void drawScrollingSymbols(bool show);
     void showScroll(bool show);
+    bool isShown() const { return m_show; }
     bool getKeyboardInfo(int *notes);
 
 private:

@@ -91,13 +91,15 @@ void GuiMidiSetupDialog::init(CSong* song, CSettings* settings)
 
     if (m_settings->getFluidSoundFontNames().size()>0){
         masterGainSpin->setValue(m_settings->value("FluidSynth/masterGainSpin","40").toInt());
-        reverbCheck->setChecked(m_settings->value("FluidSynth/reverbCheck","false").toBool());
+        reverbCheck->setChecked(m_settings->value("FluidSynth/reverbCheck", true).toBool());
         chorusCheck->setChecked(m_settings->value("FluidSynth/chorusCheck","false").toBool());
-        setComboFromSetting(audioDriverCombo, "FluidSynth/audioDriverCombo","pulseaudio");
-        setComboFromSetting(sampleRateCombo, "FluidSynth/sampleRateCombo","22050");
-        setComboFromSetting(bufferSizeCombo, "FluidSynth/bufferSizeCombo","128");
-        setComboFromSetting(bufferCountCombo, "FluidSynth/bufferCountCombo","4");
      }
+#if WITH_INTERNAL_FLUIDSYNTH
+    setComboFromSetting(audioDriverCombo, "FluidSynth/audioDriverCombo", CMidiDeviceFluidSynth::defaultAudioDriver());
+    setComboFromSetting(sampleRateCombo, "FluidSynth/sampleRateCombo", QString::number(CMidiDeviceFluidSynth::defaultSampleRate()));
+    setComboFromSetting(bufferSizeCombo, "FluidSynth/bufferSizeCombo", QString::number(CMidiDeviceFluidSynth::defaultPeriodSize()));
+    setComboFromSetting(bufferCountCombo, "FluidSynth/bufferCountCombo", QString::number(CMidiDeviceFluidSynth::defaultPeriods()));
+#endif
 
     updateFluidInfoStatus();
 }

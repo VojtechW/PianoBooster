@@ -73,9 +73,16 @@ public:
 
     qint64 mSecToTicks(qint64 mSec)
     {
-        return static_cast<qint64>(static_cast<float>(mSec) * m_userSpeed * (100.0f * MICRO_SECOND) / m_midiTempo);
+        // The result is in song ticks: the MIDI file's pulses times SPEED_ADJUST_FACTOR, i.e. ppqn * 1000
+        // per quarter note (m_midiTempo is normalised to DEFAULT_PPQN, which cancels out below).
+        return static_cast<qint64>(static_cast<double>(mSec) * m_userSpeed * (DEFAULT_PPQN * static_cast<double>(MICRO_SECOND)) / m_midiTempo);
     }
 
+    //! the inverse of mSecToTicks()
+    double ticksToMSec(qint64 ticks)
+    {
+        return static_cast<double>(ticks) * static_cast<double>(m_midiTempo) / (static_cast<double>(m_userSpeed) * DEFAULT_PPQN * static_cast<double>(MICRO_SECOND));
+    }
     void insertPlayingTicks(qint64 ticks)
     {
         m_jumpAheadDelta -= ticks;

@@ -55,6 +55,17 @@ public:
     void stopTimerEvent();
     void startTimerEvent();
 
+    //! switch between the falling-notes view and the notation view
+    void setHighwayMode(bool enable);
+    bool isHighwayMode() const { return m_highwayMode; }
+    void dismissResults() { m_resultVisible = false; }
+
+signals:
+    //! a scored run ended: at the end of the song, or at the end of a loop pass
+    void runFinished(const PerformanceResult &result, bool loopPass);
+    //! the progress bar was clicked (bars == 0) or a range of bars was dragged out for looping
+    void barRangeSelected(double fromBar, double bars);
+
 protected:
     void timerEvent(QTimerEvent *event);
     void mediaTimerEvent(int ticks);
@@ -64,6 +75,8 @@ protected:
     void resizeGL(int width, int height);
     void mousePressEvent(QMouseEvent *event);
     void mouseMoveEvent(QMouseEvent *event);
+    void mouseReleaseEvent(QMouseEvent *event);
+    void wheelEvent(QWheelEvent *event);
     void renderText(double x, double y, double z, const QString &str, const QFont & font);
 
 private:
@@ -72,6 +85,14 @@ private:
     void drawAccurracyBar();
     void drawBarNumber();
     void updateMidiTask();
+    void paintHighway();
+    void drawHighwayHud(float width, float height);
+    void drawResultPanel(float width, float height);
+    void finishRun(bool loopPass);
+    bool inProgressBar(const QPointF &pos) const;
+    double barAt(const QPointF &pos) const;
+    void flushText();
+    void drawTextAligned(float x, float y, const QString &text, const QFont &font, int align);
 
     QString accuracyText;
     int accuracyBarStart = 0;
@@ -83,6 +104,7 @@ private:
     CScore* m_score;
     QBasicTimer m_timer;
     QElapsedTimer m_realtime;
+    qint64 m_realtimeConsumedNs = 0;
     qint64 m_displayUpdateTicks;
     CRating* m_rating;
     QFont m_timeSigFont;
@@ -95,6 +117,24 @@ private:
     int m_titleHeight;
     eventBits_t m_eventBits;
     bool m_allowedTimerEvent;
+
+    bool m_highwayMode = true;
+    bool m_restoreNotationViewport = false;
+    int m_width = 0;
+    int m_height = 0;
+    QFont m_hudFont;
+    QFont m_hudSmallFont;
+    QFont m_popupFont;
+    QFont m_resultFont;
+    PerformanceResult m_result;      // the last finished run
+    bool m_resultVisible = false;
+    struct QueuedText { float x; float y; QString text; QFont font; QColor color; int align; };
+    std::vector<QueuedText> m_textQueue; // the highway view draws all its text in one QPainter pass
+    int m_frameIntervalMs = 8;
+    double m_dragFromBar = -1;
+    double m_dragToBar = -1;
+    bool m_resultIsLoopPass = false;
+    qint64 m_resultTimeUs = 0;
 };
 
 #endif // __GLVIEW_H__

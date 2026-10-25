@@ -78,7 +78,7 @@ bool CMidiDevice::openMidiPort(midiType_t type, const QString &portName)
     {
         if (m_rtMidiDevice->openMidiPort(type, portName))
         {
-            m_selectedMidiOutputDevice = m_rtMidiDevice;
+            m_selectedMidiInputDevice = m_rtMidiDevice;
             return true;
         }
     }
@@ -107,6 +107,13 @@ bool CMidiDevice::openMidiPort(midiType_t type, const QString &portName)
 
 void CMidiDevice::closeMidiPort(midiType_t type, int index)
 {
+    // Only close the device for the given direction, otherwise (re)opening the keyboard
+    // input would also tear down the sound output.
+    if (type == MIDI_INPUT)
+    {
+        m_rtMidiDevice->closeMidiPort(type, index);
+        return;
+    }
     if (m_selectedMidiOutputDevice == nullptr)
         return;
 

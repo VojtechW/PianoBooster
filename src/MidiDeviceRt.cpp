@@ -30,6 +30,8 @@
 
 #include <limits>
 
+#include "Util.h"
+
 CMidiDeviceRt::CMidiDeviceRt()
 {
     m_validConnection = false;
@@ -71,6 +73,7 @@ void CMidiDeviceRt::init()
         }
         try {
             m_midiin = new RtMidiIn();
+            m_midiin->setCallback(&CMidiDeviceRt::inputCallback, this);
         }
         catch(RtMidiError &error){
             error.printMessage();
@@ -162,6 +165,8 @@ bool CMidiDeviceRt::openMidiPort(midiType_t type, const QString &portName)
             m_rawDataIndex = 0;
 
             midiDevice->openPort( i );
+            if (dev == 0) // drop anything still queued from the previous input port
+                m_inputRingTail.store(m_inputRingHead.load(std::memory_order_acquire), std::memory_order_release);
             m_validConnection = true;
             return true;
         }
@@ -174,9 +179,19 @@ void CMidiDeviceRt::closeMidiPort(midiType_t type, int index)
     Q_UNUSED(index)
     m_validConnection = false;
     if (type == MIDI_INPUT)
-        m_midiin->closePort();
+    {
+        if (m_midiin)
+            m_midiin->closePort();
+        m_midiPorts[0] = -1;
+        // drop anything still queued from the old port (the callback no longer runs once closed)
+        m_inputRingTail.store(m_inputRingHead.load(std::memory_order_acquire), std::memory_order_release);
+    }
     else
-        m_midiout->closePort();
+    {
+        if (m_midiout)
+            m_midiout->closePort();
+        m_midiPorts[1] = -1;
+    }
 }
 
 //! add a midi event to be played immediately
@@ -257,22 +272,39 @@ void CMidiDeviceRt::playMidiEvent(const CMidiEvent & event)
     //event.printDetails(); // useful for debugging
 }
 
-// Return the number of events waiting to be read from the midi device
+// Runs on the RtMidi thread: copy the message into the ring buffer, nothing else.
+void CMidiDeviceRt::inputCallback(double timeStamp, std::vector<unsigned char> *message, void *userData)
+{
+    Q_UNUSED(timeStamp)
+    auto *self = static_cast<CMidiDeviceRt *>(userData);
+    if (message == nullptr || message->empty() || message->size() > 3)
+        return; // sysex and other long messages are not used
+    const size_t head = self->m_inputRingHead.load(std::memory_order_relaxed);
+    const size_t tail = self->m_inputRingTail.load(std::memory_order_acquire);
+    if (head - tail >= INPUT_RING_SIZE)
+        return; // full: drop rather than block the MIDI thread
+    InputMessage &slot = self->m_inputRing[head & (INPUT_RING_SIZE - 1)];
+    slot.length = static_cast<unsigned char>(message->size());
+    for (size_t i = 0; i < 3; ++i)
+        slot.bytes[i] = i < message->size() ? (*message)[i] : 0;
+    slot.arrivalUs = monotonicTimeUs();
+    self->m_inputRingHead.store(head + 1, std::memory_order_release);
+}
+
+// Return the number of bytes of the next event waiting to be read from the midi device
 int CMidiDeviceRt::checkMidiInput()
 {
     if (m_midiPorts[0] < 0)
         return 0;
 
-    try {
-        m_stamp = m_midiin->getMessage( &m_inputMessage );
-    }
-    catch(RtMidiError &error){
-        error.printMessage();
-        m_validConnection = false;
+    const size_t tail = m_inputRingTail.load(std::memory_order_relaxed);
+    if (tail == m_inputRingHead.load(std::memory_order_acquire))
         return 0;
-    }
-
-    return m_inputMessage.size() > std::numeric_limits<int>::max() ? std::numeric_limits<int>::max() : static_cast<int>(m_inputMessage.size());
+    const InputMessage &slot = m_inputRing[tail & (INPUT_RING_SIZE - 1)];
+    m_inputMessage.assign(slot.bytes, slot.bytes + slot.length);
+    m_lastInputAgeUs = monotonicTimeUs() - slot.arrivalUs;
+    m_inputRingTail.store(tail + 1, std::memory_order_release);
+    return static_cast<int>(m_inputMessage.size());
 }
 
 // reads the real midi event
@@ -286,7 +318,7 @@ CMidiEvent CMidiDeviceRt::readMidiInput()
 
         for (unsigned int i = 0; i < m_inputMessage.size(); i++)
             str += " 0x" + QString::number(m_inputMessage[i], 16) + ',';
-        ppLogInfo("midi input %f : %s", m_stamp, qPrintable(str));
+        ppLogInfo("midi input age %lld us : %s", static_cast<long long>(m_lastInputAgeUs), qPrintable(str));
     }
 
     int channel = m_inputMessage[0] & 0x0f;

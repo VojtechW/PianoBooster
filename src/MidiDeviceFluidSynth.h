@@ -33,6 +33,8 @@
 
 #include <fluidsynth.h>
 
+#include <QMap>
+
 #define FLUID_DEFAULT_GAIN 80
 
 class CMidiDeviceFluidSynth : public CMidiDeviceBase
@@ -57,6 +59,10 @@ class CMidiDeviceFluidSynth : public CMidiDeviceBase
     virtual double  midiSettingsGetNum(const QString &name);
     virtual int     midiSettingsGetInt(const QString &name);
 
+    QList<SoundPreset> soundPresets();
+    bool selectChannelSound(int channel, const QString &font, int bank, int program);
+    bool addSoundFont(const QString &font);
+
 public:
     CMidiDeviceFluidSynth();
     ~CMidiDeviceFluidSynth();
@@ -66,6 +72,20 @@ public:
         return QString(tr("Internal Sound") + " " + FLUID_NAME );
     }
 
+    // Platform defaults. On macOS CoreAudio copes well with small buffers, which keeps the
+    // key-press-to-sound latency at a few milliseconds (64 frames * 2 periods @ 44.1 kHz ~ 3 ms).
+#if defined (Q_OS_DARWIN)
+    static const char* defaultAudioDriver() { return "coreaudio"; }
+    static int defaultSampleRate() { return 44100; }
+    static int defaultPeriodSize() { return 64; }
+    static int defaultPeriods() { return 2; }
+#else
+    static const char* defaultAudioDriver() { return "pulseaudio"; }
+    static int defaultSampleRate() { return 22050; }
+    static int defaultPeriodSize() { return 128; }
+    static int defaultPeriods() { return 4; }
+#endif
+
 private:
     static constexpr const char* FLUID_NAME = "(FluidSynth)";
     unsigned char m_savedRawBytes[40]; // Raw data is used for used for a SYSTEM_EVENT
@@ -74,7 +94,12 @@ private:
     fluid_settings_t* m_fluidSettings;
     fluid_synth_t* m_synth;
     fluid_audio_driver_t* m_audioDriver;
-    int m_soundFontId;
+    int m_soundFontId;            // the main (General MIDI) SoundFont, used for the accompaniment
+    QMap<QString, int> m_fontIds; // every loaded SoundFont file -> its FluidSynth id
+    bool m_channelLocked[MAX_MIDI_CHANNELS] = {}; // channels with a fixed instrument (see selectChannelSound)
+    int m_channelBank[MAX_MIDI_CHANNELS] = {};    // the bank selected on each channel (CC 0)
+    static constexpr int DRUM_BANK = 128;         // FluidSynth's bank of the General MIDI drum kits
+    void setMainFontProgram(int channel, int program);
     bool m_validConnection;
 };
 

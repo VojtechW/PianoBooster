@@ -39,6 +39,7 @@
 #include "GuiSongDetailsDialog.h"
 #include "GuiLoopingPopup.h"
 #include "Settings.h"
+#include "Performance.h"
 
 class CGLView;
 class QAction;
@@ -78,6 +79,13 @@ public:
     void setCurrentFile(const QString &fileName);
 
 private slots:
+    void onRunFinished(const PerformanceResult &result, bool loopPass);
+    void practiceTick();
+    void showProgressDialog();
+    void nextLesson();
+    void setTimingCalibration();
+    void checkMidiInputs();
+    void buildSoundMenu();
     void open();
     void help();
     void website();
@@ -106,9 +114,13 @@ private slots:
 
     void showKeyboardSetup()
     {
+        const QVariant rightSound = m_settings->value("Keyboard/RightSound");
         GuiKeyboardSetupDialog keyboardSetup(this);
         keyboardSetup.init(m_song, m_settings);
         keyboardSetup.exec();
+        refreshHighwaySettings();
+        if (m_settings->value("Keyboard/RightSound") != rightSound)
+            useKeyboardSetupSound(); // a sound chosen there replaces the one from Practice / Your Sound
     }
 
     void toggleSidePanel()
@@ -188,6 +200,13 @@ private:
     void displayUsage();
     void createActions();
     void createMenus();
+    void createPracticeFeatures();
+    QString currentSongKey();
+    void updateStatusBar();
+    void refreshHighwaySettings();
+    void applyPianistSound();
+    void useKeyboardSetupSound();
+    void setupSoundBanks();
     void readSettings();
     void writeSettings();
 
@@ -223,6 +242,18 @@ private:
     QMenu *m_songMenu;
     QMenu *m_setupMenu;
     QMenu *m_helpMenu;
+    QMenu *m_practiceMenu = nullptr;
+    QMenu *m_soundMenu = nullptr;
+    QAction *m_highwayAct = nullptr;
+    QAction *m_countInAct = nullptr;
+    QAction *m_metronomeAct = nullptr;
+    QAction *m_autoSpeedAct = nullptr;
+    QLabel *m_statusLabel = nullptr;
+    QTimer *m_practiceTimer = nullptr;
+    qint64 m_lastPracticeTickUs = 0;
+    int m_unsavedPracticeSeconds = 0;
+    QString m_connectedMidiInput; // the input port opened by the hot-plug check
+    QStringList m_lastMidiInputPorts;
 
     CSong* m_song;
     CScore* m_score;

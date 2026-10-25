@@ -29,6 +29,7 @@
 #include <QtWidgets>
 
 #include "GuiSidePanel.h"
+#include "Progress.h"
 #include "GuiTopBar.h"
 #include "TrackList.h"
 #include "Conductor.h"
@@ -152,7 +153,49 @@ void GuiSidePanel::on_bookCombo_activated (int index)
         if (songNames.at(i) == currentSong)
             songCombo->setCurrentIndex(i);
     }
+    updateSongStars();
     on_songCombo_activated(0); // Now load the selected song
+}
+
+static QIcon starIcon(int stars)
+{
+    const qreal dpr = 2.0;
+    QPixmap pixmap(QSize(42, 14) * dpr);
+    pixmap.setDevicePixelRatio(dpr);
+    pixmap.fill(Qt::transparent);
+    QPainter painter(&pixmap);
+    QFont font = painter.font();
+    font.setPixelSize(13);
+    painter.setFont(font);
+    for (int i = 0; i < 3; i++)
+    {
+        painter.setPen(i < stars ? QColor(232, 170, 20) : QColor(170, 170, 170));
+        painter.drawText(QRect(i * 14, 0, 14, 14), Qt::AlignCenter, QString(i < stars ? QChar(0x2605) : QChar(0x2606)));
+    }
+    return QIcon(pixmap);
+}
+
+void GuiSidePanel::updateSongStars()
+{
+    const QString book = m_settings->getCurrentBookName();
+    songCombo->setIconSize(QSize(42, 14));
+    for (int i = 0; i < songCombo->count(); ++i)
+        songCombo->setItemIcon(i, starIcon(CProgress::instance().songStars(book + '/' + songCombo->itemText(i))));
+}
+
+bool GuiSidePanel::selectNextLesson()
+{
+    const QString book = m_settings->getCurrentBookName();
+    for (int i = 0; i < songCombo->count(); ++i)
+    {
+        if (CProgress::instance().songStars(book + '/' + songCombo->itemText(i)) < 3)
+        {
+            songCombo->setCurrentIndex(i);
+            on_songCombo_activated(i);
+            return true;
+        }
+    }
+    return false;
 }
 
 void GuiSidePanel::on_songCombo_activated(int index)

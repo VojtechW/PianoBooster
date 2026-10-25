@@ -32,6 +32,7 @@
 #include <cassert>
 #include <string>
 #include <limits>
+#include <chrono>
 
 #include <QString>
 #include <QApplication>
@@ -84,6 +85,12 @@ void ppTiming(const char *msg, ...);
 void closeLogs();
 
 constexpr int SPEED_ADJUST_FACTOR = 1000;
+
+//! A monotonic clock in microseconds, safe to call from any thread.
+inline qint64 monotonicTimeUs()
+{
+    return std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
 constexpr int deltaAdjust (int delta) { return delta / SPEED_ADJUST_FACTOR; }
 constexpr qint64 deltaAdjustL (qint64 delta) { return delta / SPEED_ADJUST_FACTOR; }
 constexpr float deltaAdjustF (qint64 delta) { return static_cast<float>(delta) / static_cast<float>(SPEED_ADJUST_FACTOR); }

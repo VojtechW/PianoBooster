@@ -49,6 +49,13 @@ public:
     void playMidiEvent(const CMidiEvent & event);
     int checkMidiInput();
     CMidiEvent readMidiInput();
+    qint64 lastInputAgeUs() { return m_selectedMidiInputDevice ? m_selectedMidiInputDevice->lastInputAgeUs() : 0; }
+    QList<SoundPreset> soundPresets() { return m_selectedMidiOutputDevice ? m_selectedMidiOutputDevice->soundPresets() : QList<SoundPreset>(); }
+    bool selectChannelSound(int channel, const QString &font, int bank, int program)
+    {
+        return m_selectedMidiOutputDevice && m_selectedMidiOutputDevice->selectChannelSound(channel, font, bank, program);
+    }
+    bool addSoundFont(const QString &font) { return m_selectedMidiOutputDevice && m_selectedMidiOutputDevice->addSoundFont(font); }
     bool validMidiOutput();
     virtual bool validMidiConnection() {return validMidiOutput();}
 

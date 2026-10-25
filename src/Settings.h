@@ -140,6 +140,17 @@ public:
     }
 
     void pianistActive() { m_pianistActive = true;}
+
+    // SoundFonts
+    static QStringList soundFontFolders();
+    //! all SoundFont files in soundFontFolders(), each folder's files largest first
+    static QStringList findSoundFonts();
+    static bool isGeneralMidiBank(const QString &font);
+    static QString bestGeneralMidiBank(const QStringList &fonts);
+    //! use a newly installed General MIDI bank instead of the fallback one, and offer all the other
+    //! installed banks as instruments; returns true when the main bank changed
+    bool updateSoundBanks();
+    static constexpr const char *FALLBACK_SOUND_FONT_FOLDER = "/opt/homebrew/share/fluid-synth/sf2";
     void setActiveHand(whichPart_t hand);
 
     void setChannelHands(int left, int right);

@@ -37,6 +37,8 @@
 #include "Rating.h"
 #include "Tempo.h"
 #include "Bar.h"
+#include "Performance.h"
+#include "Highway.h"
 
 class CScore;
 class CPiano;
@@ -157,15 +159,34 @@ public:
 
     void setActiveChannel(int channel);
     int getActiveChannel(){return m_activeChannel;}
-    void setPianistChannels(int goodChan, int badChan){
-        m_pianistGoodChan = goodChan;
-        m_pianistBadChan = badChan;
-    }
+    void setPianistChannels(int goodChan, int badChan);
+
+    //! The instrument the pianist hears: an instrument from a SoundFont (font empty = the General
+    //! MIDI patch of the keyboard setup), or the song's own instrument for the part being played.
+    void setPianistSound(const QString &font, int bank, int program, bool useSongInstrument);
+    //! the General MIDI program the song uses for the part being played (-1 = unknown)
+    void setSongPianistProgram(int program) { m_songPianistProgram = program; updatePianoSounds(); }
     bool hasPianistKeyboardChannel(int chan)   { return (m_pianistGoodChan == chan || m_pianistBadChan == chan ) ? true : false;}
 
     bool shouldMutePianistPart() {return m_playMode != PB_PLAY_MODE_listen && m_mutePianistPart == true;}
 
     CRating* getRating(){return &m_rating;}
+    CPerformance* getPerformance(){return &m_performance;}
+
+    //! one bar of clicks before the music starts
+    void setCountIn(bool enable) { m_cfg_countIn = enable; }
+    bool getCountIn() { return m_cfg_countIn; }
+    //! a click on every beat while playing
+    void setMetronome(bool enable) { m_cfg_metronome = enable; }
+    bool getMetronome() { return m_cfg_metronome; }
+    //! the number shown while counting in (0 when not counting in)
+    int getCountInDisplay() { return m_countingIn ? m_countInBeatsLeft + 1 : 0; }
+    bool isCountingIn() { return m_countingIn; }
+    //! monotonicTimeUs() of the last key the pianist played
+    qint64 lastPianistInputUs() { return m_lastPianistInputUs; }
+    //! milliseconds subtracted from every timing judgement (compensates audio/display latency)
+    void setTimingCalibration(int ms) { m_timingCalibrationMs = ms; }
+    int getTimingCalibration() { return m_timingCalibrationMs; }
 
     // You MUST clear the time sig to 0 first before setting an new start time Sig
     void setTimeSig(int top, int bottom) { m_bar.setTimeSig(top, bottom);}
@@ -194,6 +215,7 @@ public:
     double getPlayUptoBar(){ return m_bar.getPlayUptoBar();}
     void setLoopingBars(double bars){ m_bar.setLoopingBars(bars);}
     double getLoopingBars(){ return m_bar.getLoopingBars();}
+    double getPlayFromBar(){ return m_bar.getPlayFromBar();}
 
     void mutePianistPart(bool state);
     void mapTrack2Channel(int trackNumber, int channelNumber)
@@ -244,6 +266,12 @@ private:
 
     void followPlaying();
     void missedNotesColor(CColor color);
+    void judgeGoodNote(int inputNote);
+    bool countIn(qint64 ticks);
+    void metronomeClick(bool accent);
+    void metronomeTick();
+    void judgeRemainingNotes(Judgement judgement);
+    void setKeyState(int note, CHighway::keyState_t state);
 
     int calcBoostVolume(int chan, int volume);
 
@@ -265,6 +293,15 @@ private:
     }
 
     CRating m_rating;
+    CPerformance m_performance;
+    bool m_cfg_countIn = true;
+    bool m_cfg_metronome = false;
+    bool m_countingIn = false;
+    int m_countInBeatsLeft = 0;  // clicks still to come
+    qint64 m_countInTicks = 0;   // ticks to the next count-in click
+    int m_lastMetronomeBeat = -1;
+    int m_lastClickNote = -1;
+    int m_timingCalibrationMs = 0;
     CQueue<CMidiEvent>* m_savedNoteQueue;
     CQueue<CMidiEvent>* m_savedNoteOffQueue;
     CMidiEvent m_nextMidiEvent;
@@ -278,6 +315,7 @@ private:
     CChord m_wantedChord;  // The chord the pianist needs to play
     CChord m_savedWantedChord; // A copy of the wanted chord complete with both left and right parts
     CChord m_goodPlayedNotes;  // The good notes the pianist plays
+    CChord m_judgedNotes;      // The notes of the wanted chord that have been judged (sounding pitches)
     CTempo m_tempo;
     bool m_KeyboardLightsOn;
 
@@ -285,10 +323,15 @@ private:
     bool m_followSkillAdvanced;
     int m_lastSound;
     qint64 m_stopPoint;   // Were we stop the music if the pianist is late
-    int m_cfg_rightNoteSound;
-    int m_cfg_wrongNoteSound;
-    int m_pianistGoodChan;
-    int m_pianistBadChan;
+    int m_cfg_rightNoteSound = 0;
+    QString m_pianistSoundFont;     // see setPianistSound()
+    int m_pianistSoundBank = 0;
+    int m_pianistSoundProgram = 0;
+    bool m_useSongInstrument = false;
+    int m_songPianistProgram = -1;
+    int m_cfg_wrongNoteSound = 6;
+    int m_pianistGoodChan = 0;
+    int m_pianistBadChan = 1;
     qint64 m_cfg_earlyNotesPoint; // don't press the note too early
     qint64 m_cfg_stopPointAdvanced;   // Were we stop the music if the pianist is late
     qint64 m_cfg_stopPointBeginner;   // Were we stop the music if the pianist is late
@@ -300,6 +343,8 @@ private:
     int m_cfg_rhythmTapRightHandDrumSound;
 
     qint64 m_pianistTiming;  //measure whether the pianist is playing early or late
+    qint64 m_inputAgeUs = 0;
+    qint64 m_lastPianistInputUs = 0; // how long the input event being processed waited in the MIDI input queue
     bool m_followPlayingTimeOut;  // O dear, the student is too slow
 
     bool m_testWrongNoteSound;

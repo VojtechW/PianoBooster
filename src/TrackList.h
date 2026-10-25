@@ -199,6 +199,9 @@ public:
         return sumOffAllPitches / totalNoteCount;
     }
 
+    //! the (0 based) General MIDI program the song uses on a channel
+    int getChannelProgram(int chan) { return (chan >= 0 && chan < MAX_MIDI_CHANNELS) ? m_midiChannels[chan].firstPatch() : -1; }
+
 private:
     QString getChannelProgramName(int chan);
 
