@@ -48,6 +48,23 @@ GuiTopBar::GuiTopBar(QWidget *parent, CSettings* settings)
     speedSpin->setSingleStep(2);
     speedSpin->setValue(100);
 
+    // The slider and the spin box show the same speed. The slider snaps to 5% steps and has no
+    // keyboard focus, so Space and the arrow keys keep controlling playback and the speed.
+    speedSlider->setRange(speedSpin->minimum(), speedSpin->maximum());
+    speedSlider->setSingleStep(5);
+    speedSlider->setPageStep(10);
+    speedSlider->setTickPosition(QSlider::TicksBelow);
+    speedSlider->setTickInterval(20);
+    speedSlider->setValue(speedSpin->value());
+    speedSlider->installEventFilter(this);
+    connect(speedSlider, &QSlider::valueChanged, this, [this](int value) {
+        const int snapped = (value + 2) / 5 * 5;
+        if (snapped != value)
+            speedSlider->setValue(snapped); // comes back here with the snapped value
+        else
+            speedSpin->setValue(value);
+    });
+
     transposeSpin->setMaximum(12);
     transposeSpin->setMinimum(-12);
 
@@ -232,6 +249,9 @@ void GuiTopBar::on_playFromStartButton_clicked(bool clicked)
 
 void GuiTopBar::on_speedSpin_valueChanged(int speed)
 {
+    speedSlider->blockSignals(true); // spin box values between the slider's 5% steps are kept
+    speedSlider->setValue(speed);
+    speedSlider->blockSignals(false);
     if (!m_song) return;
     m_song->setSpeed(static_cast<float>(speed) / 100.0f);
 }
@@ -293,6 +313,13 @@ void GuiTopBar::on_loopingBarsPopupButton_clicked(bool clicked)
 
 bool GuiTopBar::eventFilter(QObject *obj, QEvent *event)
 {
+    if (obj == speedSlider) {
+        if (event->type() == QEvent::MouseButtonDblClick) {
+            speedSpin->setValue(100);
+            return true;
+        }
+        return QObject::eventFilter(obj, event);
+    }
     if (event->type() == QEvent::KeyPress) {
         QKeyEvent *keyEvent = static_cast<QKeyEvent *>(event);
         if (keyEvent->key()==Qt::Key_Up) {

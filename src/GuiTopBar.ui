@@ -103,6 +103,25 @@
       </widget>
      </item>
      <item>
+      <widget class="QSlider" name="speedSlider">
+       <property name="orientation">
+        <enum>Qt::Horizontal</enum>
+       </property>
+       <property name="minimumSize">
+        <size>
+         <width>140</width>
+         <height>0</height>
+        </size>
+       </property>
+       <property name="focusPolicy">
+        <enum>Qt::NoFocus</enum>
+       </property>
+       <property name="toolTip">
+        <string>Drag to change the speed (double-click for 100%)</string>
+       </property>
+      </widget>
+     </item>
+     <item>
       <widget class="QSpinBox" name="speedSpin"/>
      </item>
      <item>

@@ -48,8 +48,9 @@ In the notation view the same advice appears in the status bar when a song does 
 
 - **Loop a passage:** drag across the bars you want on the progress bar at the top. The loop is
   shown in pink. Click the progress bar once to start from that bar without a loop.
-- **Auto speed-up** (*Practice → Auto Speed-up in Loops*): set a lower speed (Speed box or the
-  `-` key). After every loop pass with at least 90% accuracy the speed goes up by 5%, until 100%.
+- **Speed:** drag the speed slider in the top bar (5% steps; double-click it for 100%), or use
+  the Up and Down arrow keys for 2% steps.
+- **Auto speed-up** (*Practice → Auto Speed-up in Loops*): start at a lower speed. After every loop pass with at least 90% accuracy the speed goes up by 5%, until 100%.
 - **Count-in** (*Practice → Count-in*) and **Metronome** (*Practice → Metronome*, Fn+F6).
 - **Zoom:** scroll the mouse wheel over the falling notes to see more or fewer beats ahead.
 - **Note names:** *Setup → Preferences → Show note names* also labels the falling notes.
